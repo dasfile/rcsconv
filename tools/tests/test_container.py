@@ -396,6 +396,51 @@ class CorpusTests(unittest.TestCase):
                 self.assertGreater(len(colors), 1000, "ожидалось цветное облако")
 
 
+class ChunkVersionTests(unittest.TestCase):
+    """`chunk_version` (@0xD4) — версия схемы писателя, зависит от пути импорта.
+
+    ПОДТВЕРЖДЕНО (docs/RCS-FORMAT.md §2): raw из `.pts` → 2, raw из `.laz` → 1,
+    «нетекстовый» импорт → 134, экспорт Unified RCS → 5. Файл с версией 134
+    (`golden/reference/raw_v134.rcs`) сохранён как свидетель: остальные инварианты
+    у него не проходят (импорт «мусорного» e57), поэтому проверяем только версию.
+    """
+
+    FILES = (
+        ("golden/level_7 Support/level_7.rcs", 2),
+        ("golden/lazimport/attic_entrance Support/attic_entrance.rcs", 1),
+        ("golden/reference/raw_v134.rcs", 134),
+        ("golden/probe6.rcs", 5),
+    )
+
+    def version_check(self, container) -> "Check":
+        checks = [c for c in check_invariants(container) if c.name == "chunk_version известна"]
+        self.assertTrue(checks, "нет проверки версии в check_invariants")
+        return checks[0]
+
+    def test_known_versions(self) -> None:
+        for relative, version in self.FILES:
+            path = ROOT / relative
+            if not path.exists():
+                continue
+            container = parse_file(path)
+            with self.subTest(path=relative):
+                self.assertEqual(container.header.chunk_version, version)
+                self.assertTrue(self.version_check(container).ok)
+
+    def test_unknown_version_is_not_an_error(self) -> None:
+        """Неизвестная версия схемы — наблюдение, а не порча файла."""
+        from dataclasses import replace
+
+        path = GOLDEN / "probe6.rcs"
+        if not path.exists():
+            raise unittest.SkipTest(f"нет {path}")
+        container = parse_file(path)
+        alien = replace(container, header=replace(container.header, chunk_version=999))
+        check = self.version_check(alien)
+        self.assertTrue(check.ok)
+        self.assertIn("неизвестна", check.detail)
+
+
 class PointDecodingTests(unittest.TestCase):
     """Декодирование блока type 11 (см. tools/rcs_points.py)."""
 

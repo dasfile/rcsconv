@@ -29,6 +29,13 @@ BLOCK_LAYOUTS = {
     (3, 1, 11, 0): "export",
 }
 CHUNK_VERSIONS = {2: "raw", 5: "export"}
+
+# Наблюдаемые значения `chunk_version` (@0xD4) в зависимости от пути импорта
+# (docs/RCS-FORMAT.md §2):
+#   (131, 2)   raw из `.pts`          | (131, 5)   экспорт Unified RCS
+#   (11,  1)   raw из `.laz`          | (131, 134) raw из «нетекстового» импорта
+# Поле — версия схемы писателя; неизвестное значение не считается ошибкой.
+KNOWN_CHUNK_VERSIONS = frozenset({1, 2, 5, 134})
 JPEG_SOI = b"\xff\xd8\xff"
 
 

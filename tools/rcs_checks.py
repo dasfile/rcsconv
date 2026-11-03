@@ -8,7 +8,7 @@ from typing import Iterable
 
 from rcs_blocks import (
     BLOCK_LAYOUTS,
-    CHUNK_VERSIONS,
+    KNOWN_CHUNK_VERSIONS,
     Container,
     TILE_RECORD_SIZE,
     block_tlvs,
@@ -82,11 +82,13 @@ def check_invariants(container: Container) -> list[Check]:
     checks.append(Check("word4 = 84", header.word4 == 84, f"0x04 = {header.word4}"))
     checks.append(Check("word8 = 3", header.word8 == 3, f"0x08 = {header.word8}"))
     checks.append(Check("word12 = 2", header.word12 == 2, f"0x0C = {header.word12}"))
+    known_version = header.chunk_version in KNOWN_CHUNK_VERSIONS
     checks.append(
         Check(
-            "chunk_version ∈ {2, 5}",
-            header.chunk_version in CHUNK_VERSIONS,
-            f"0xD4 = {header.chunk_version} → диалект {dialect(container)}",
+            "chunk_version известна",
+            True,   # неизвестная версия — наблюдение, а не ошибка (§2 RCS-FORMAT)
+            f"0xD4 = {header.chunk_version} → диалект {dialect(container)}"
+            + ("" if known_version else "; версия неизвестна, для чтения не критично"),
         )
     )
 

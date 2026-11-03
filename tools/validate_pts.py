@@ -30,7 +30,7 @@ from analyze_type1 import (
 from cli_paths import default_target, expand_sources, has_suffix
 from corpus_status import find_export
 from pts2rcs import read_pts
-from rcs_blocks import RcsFormatError, iter_tiles, parse_file
+from rcs_blocks import RcsFormatError, dialect, iter_tiles, parse_file
 
 BBOX_TOLERANCE = 1e-3   # метры, критерий приёмки
 BBOX_SOFT_TOLERANCE = 1e-2   # эталон ReCap прорежен: крайние точки могут «плыть»
@@ -125,7 +125,7 @@ def rcs_stats(path: str | Path) -> RcsStats:
     half = tuple(-value for value in header.extent_min)
     return RcsStats(
         path=path,
-        dialect="raw" if header.chunk_version == 2 else "export",
+        dialect=dialect(container),
         count=header.count,
         node_points=sum(tile.count for tile in tiles),
         tiles=len(tiles),
