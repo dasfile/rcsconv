@@ -234,6 +234,23 @@ fn metadata_build_follows_invariant() {
 }
 
 #[test]
+fn metadata_block_rebuilds_golden_block() {
+    // Собранный из слов блок `type 1` обязан совпасть с эталонным ReCap:
+    // записи во всех эталонах одинаковы, слова — занятые узлы по уровням.
+    for (name, words) in [
+        ("probe6.rcs", vec![1u32, 3]),
+        ("level_7.rcs", vec![1, 8, 13, 43]),
+    ] {
+        let Some(container) = parse(name) else {
+            return;
+        };
+        let block = container.block_of_type(1).expect("блок type 1");
+        let rebuilt = metadata::build_metadata_block(&words, None).expect("сборка");
+        assert_eq!(rebuilt, container.read_block(block), "{name}: type 1 побайтово");
+    }
+}
+
+#[test]
 fn bad_signature_is_rejected() {
     let mut data = vec![0u8; 0x200];
     data[..8].copy_from_slice(b"NOTADOCT");

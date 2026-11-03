@@ -1,8 +1,10 @@
 //! rcsconv — конвертер Autodesk ReCap `.rcs` (контейнер ADOCT).
 //!
-//! Состояние: фаза R0 — каркас CLI и проверка сборки статического бинарника
-//! (`docs/ROADMAP.md` §4). Подкоманды появятся в R1–R4; цель — побайтовый
-//! паритет с Python-реализацией в `tools/`.
+//! Целевой продукт — один статический `.exe` без Python (`docs/ROADMAP.md`).
+//! Готово: `.las/.laz` → `.rcs` (`las2rcs`), `.pts` → `.rcs` (`pts2rcs`).
+//! Паритет с Python-эталоном (`tools/`) проверяется побайтово.
+
+mod cli;
 
 use std::process::ExitCode;
 
@@ -10,25 +12,50 @@ const USAGE: &str = "\
 rcsconv — reader/writer for Autodesk ReCap .rcs (ADOCT)
 
 Usage:
-  rcsconv --version   print version
-  rcsconv --help      print this help
+  rcsconv las2rcs <inputs...> [options]   .las/.laz -> .rcs
+  rcsconv pts2rcs <inputs...> [options]   .pts -> .rcs
+  rcsconv --version | --help
 
-Статус: каркас (фаза R0). Команды pts2rcs / las2rcs / rcs2pts / inspect
-появятся в фазах R1–R4 (docs/ROADMAP.md).
+Inputs: file, directory or mask (*.laz). Output name is derived (<name>.rcs);
+an existing file is not overwritten without -f.
+
+Common options:
+  -o, --out-dir DIR              write here instead of next to the input
+  -m, --max-points-per-tile N    tile limit, 1..65536 (default 65536)
+  -f, --force                    overwrite existing .rcs
+  -r, --recursive                walk subdirectories
+  -g, --guid GUID                set GUID ({8_4_4_4_12}); default is random
+
+las2rcs options:
+      --units-scale F            coordinate multiplier (feet -> m: 0.3048)
+      --recenter MODE            none | center | min
+      --no-color                 ignore LAS colour
+      --no-intensity             ignore LAS intensity
+      --color-scale MODE         auto | 257 | 1
+      --intensity-scale MODE     auto | 257 | 1
+
+Examples:
+  rcsconv las2rcs golden/level_7.laz -o out
+  rcsconv las2rcs \"golden/*.laz\" -o out -f
+  rcsconv las2rcs scan.las --units-scale 0.3048 --recenter center
+  rcsconv pts2rcs golden/probe6.pts -o out
 ";
 
-/// Разобранная командная строка (пока без подкоманд — они появятся в R1–R4).
+/// Разобранная командная строка.
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Version,
     Help,
+    Convert(&'static str),
     Unknown(String),
 }
 
 fn parse(args: &[String]) -> Command {
     match args.first().map(String::as_str) {
         Some("--version") | Some("-V") => Command::Version,
-        Some("--help") | Some("-h") => Command::Help,
+        Some("--help") | Some("-h") | Some("help") => Command::Help,
+        Some("las2rcs") => Command::Convert("las2rcs"),
+        Some("pts2rcs") => Command::Convert("pts2rcs"),
         Some(other) => Command::Unknown(other.to_string()),
         None => Command::Help,
     }
@@ -45,6 +72,10 @@ fn main() -> ExitCode {
         Command::Help => {
             print!("{USAGE}");
             ExitCode::SUCCESS
+        }
+        Command::Convert(command) => {
+            let code = cli::run(command, &args[1..]);
+            ExitCode::from(code as u8)
         }
         Command::Unknown(arg) => {
             eprintln!("rcsconv: неизвестный аргумент: {arg}");
@@ -71,15 +102,21 @@ mod tests {
     #[test]
     fn help_flags_and_empty() {
         assert_eq!(parse(&args(&["--help"])), Command::Help);
-        assert_eq!(parse(&args(&["-h"])), Command::Help);
+        assert_eq!(parse(&args(&["help"])), Command::Help);
         assert_eq!(parse(&[]), Command::Help);
+    }
+
+    #[test]
+    fn convert_commands() {
+        assert_eq!(parse(&args(&["las2rcs", "a.laz"])), Command::Convert("las2rcs"));
+        assert_eq!(parse(&args(&["pts2rcs", "a.pts"])), Command::Convert("pts2rcs"));
     }
 
     #[test]
     fn unknown_argument_is_reported() {
         assert_eq!(
-            parse(&args(&["pts2rcs"])),
-            Command::Unknown("pts2rcs".to_string())
+            parse(&args(&["explode"])),
+            Command::Unknown("explode".to_string())
         );
     }
 
@@ -88,4 +125,3 @@ mod tests {
         assert!(USAGE.contains("rcsconv"));
     }
 }
-

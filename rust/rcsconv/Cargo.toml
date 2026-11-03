@@ -11,3 +11,7 @@ name = "rcsconv"
 path = "src/main.rs"
 
 [dependencies]
+cloud-las = { path = "../cloud-las" }
+cloud-pts = { path = "../cloud-pts" }
+rcs-cloud = { path = "../rcs-cloud" }
+rcs-format = { path = "../rcs-format" }

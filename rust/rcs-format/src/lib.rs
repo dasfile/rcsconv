@@ -26,6 +26,7 @@ pub mod directory;
 pub mod error;
 pub mod header;
 pub mod metadata;
+pub mod num;
 pub mod point;
 pub mod properties;
 pub mod tile;

@@ -653,6 +653,18 @@ Rust-порт (`rust/rcs-format`, крейт `rcs_format`; паритет — `c
 | Блок свойств (`type 0`/`type 5`) | `properties.rs`, `tlv.rs` (`Properties::parse`, `build_properties_block`) |
 | Сериализация файла | `writer.rs` (`serialize`, `build_file`, `default_blocks`, `diff_ranges`) |
 
+Сборка из облака (`rust/rcs-cloud`, `cloud-pts`, `cloud-las`, CLI `rust/rcsconv`):
+
+| Что | Где |
+|---|---|
+| Точка, bbox, контракт источника | `rcs-cloud/src/{point,source}.rs` |
+| Октодерево: `root_half`, `recap_depth`, `cell_of`, `subtree_key`, `choose_depth`, `level_counts` | `rcs-cloud/src/octree.rs` |
+| Сборка `.rcs` из точек, статистика | `rcs-cloud/src/build.rs` (`build_from_points`, `build_from_source`, `Stats`) |
+| GUID `{8_4_4_4_12}` | `rcs-cloud/src/guid.rs` |
+| `.pts` → точки | `cloud-pts/src/lib.rs` (`PtsSource`) |
+| `.las/.laz` → точки (крейт `las` + `laz`), `--units-scale/--recenter/--*-scale` | `cloud-las/src/lib.rs` (`LasSource`, `LasOptions`) |
+| CLI: аргументы, маски, имена выходов, отчёт | `rcsconv/src/{main,cli}.rs` |
+
 ## Приложение B. Запуск
 
 ## Приложение C. Чек-лист реализации на другом языке

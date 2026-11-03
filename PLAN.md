@@ -23,7 +23,7 @@ Revit на машине) на **9 реальных облаках** (0.3–4.0 �
 | Корпус: `golden/` — ветки `.pts` и `.laz`, raw+export+reference | ✅ `docs/CORPUS.md` |
 | Спецификация + чек-лист для другой реализации | `docs/RCS-FORMAT.md` §9.1, Приложение C |
 | Тесты | 85 (`unittest`); без `golden/` часть классов скипается |
-| Целевой продукт: `rcsconv.exe` на Rust (GNU, `crt-static`) | ⏳ R0–R1 сделаны, R2–R5 — `docs/ROADMAP.md` |
+| Целевой продукт: `rcsconv.exe` на Rust (GNU, `crt-static`) | ⏳ R0–R2, R4 сделаны; R3, R5 — `docs/ROADMAP.md` |
 
 **Обязательных задач нет.** Открытые вопросы (`docs/RCS-FORMAT.md` §12) — «на
 понимание», на совместимость не влияют: смысл записей `kind 0…7`, поля записи узла
@@ -255,6 +255,40 @@ Revit на машине) на **9 реальных облаках** (0.3–4.0 �
       `rust-toolchain.toml` больше не фиксирует windows-триплет (он ломал бы Linux),
       а `+crt-static` перенесён в `[target.x86_64-pc-windows-gnu]`
 
+### Фаза R2 + R4 — октодерево и сборка: `.pts` → `.rcs`, `.las/.laz` → `.rcs`  ✅
+
+Порядок фаз изменён владельцем: **LAZ в приоритете** (съёмка идёт в `.laz`),
+поэтому R4 сделан вместе с R2; `.pts` остался вторым входом.
+
+- [x] `rust/rcs-cloud`: `CloudPoint`, `Bounds`, трейт `Source`, октодерево
+      (`root_half`, `recap_depth`, `cell_of`, `subtree_key`, `choose_depth`,
+      `level_counts`), сборка `build_from_points`/`build_from_source`, `Stats`,
+      GUID `{8_4_4_4_12}` без внешних зависимостей
+- [x] `rust/cloud-pts`: потоковый разбор `.pts` (3…7 колонок, шапка-счётчик,
+      `clamp8`) по правилам `tools/pts_read.py`
+- [x] `rust/cloud-las`: `.las/.laz` через крейт `las` 0.9 с фичей `laz`
+      (**чистый Rust, без DLL**); bbox и `count` — из заголовка LAS, максимумы
+      цвета/интенсивности — по всему файлу (как `laspy.chunk_iterator`);
+      `--units-scale`, `--recenter`, `--no-color/--no-intensity`,
+      `--color-scale/--intensity-scale`
+- [x] `rust/rcsconv`: CLI с подкомандами `las2rcs`/`pts2rcs` по правилам
+      `tools/rcs_cli.py` (файл/каталог/маска, `<имя>.rcs`, без `-f` не перезаписывает,
+      `-m`, `-r`, `-g`, сводка «итого»); 6 интеграционных тестов через процесс
+- [x] `rust/rcs-format`: `num.rs` — округление как в Python (половина к чётному);
+      `encode_body` приведён к эталонной схеме `rcs_build.encode_body`
+      (сначала `round(delta, 3)`, затем ×масштаб оси)
+- **Приёмка (паритет с Python, кроме GUID):** `level_7.laz` → 324 680 точек,
+  43 узла, глубина 3, ребро 2.250 м, `type 1 = 1/8/13/43 (65 записей)`; сравнение
+  с выходом `tools/las2rcs.py` — **807 → 28 байт**, все внутри строки GUID
+  (0xE3…0x109). `level_7.pts` — **29 байт**, все в GUID. `probe6.pts` — 29 байт,
+  все в GUID
+- **Найдено по ходу:** запись `type 1` у меня была сдвинута на 4 байта
+  (`u32 0` на 52 вместо 56) — 780 «тихих» различий; добавлен тест
+  «собранный `type 1` = эталонный блок» на `probe6` и `level_7`
+- **Скорость (release):** `level_7.pts` 0.7 с против 11.2 с у Python;
+  `level_7.laz` 0.7 с против 19 с; `.exe` **604 160 Б**, зависимости только
+  `KERNEL32`/`ntdll`/UCRT/`bcryptprimitives` — без `libgcc`, `libwinpthread`, MSVC
+
 ## Пробы: направление закрыто (не повторять)
 
 Синтетические облака ReCap принимает нестабильно, лог пуст. Ниже — результат, чтобы
@@ -332,6 +366,7 @@ python tools/rcs_compare.py A.rcs B.rcs                    # сравнение 
 | 2026-11-03 | Rust-first: R0 (тулчейн) + документы, 4 Rust-теста | Роли зафиксированы: **Python — эталон/оракул и среда исследования, Rust — целевой продукт**; оптимизация numpy снята с критического пути. Поставлен `rustup` без прав администратора: `stable-x86_64-pc-windows-gnu` (rustc 1.99.1, minimal), линкер — MinGW `C:\mingw64` (gcc 16.2), MSVC не используется. Учебная грабля: `rustup-init --default-host` не сменил дефолт → `channel = "stable"` развернулся в msvc и rustup подтянул второй тулчейн; лечится явным триплетом в `rust-toolchain.toml` + `rustup set default-host` (msvc удалён). Каркас `rust/`: workspace + крейт `rcsconv`, release-профиль (`lto=fat`, `cgu=1`, `strip`, `panic=abort`), `.cargo/config.toml` с `+crt-static`. Приёмка R0: `rcsconv.exe` **268 288 Б**, зависимости только `KERNEL32`/`ntdll`/UCRT (без `libgcc`/`libwinpthread`/MSVC-рантайма), `--version`/`--help`/код 2 на неизвестный аргумент, `cargo test` 4 passed; Python-тесты — 85 OK (3 скипа). Документы: новый `docs/LESSONS.md` (пост-мортем 2025: вывод, 7 ошибок, почему казалось «закрытой дверью», что сработало, что зафиксировано) со ссылками из README и §13; `docs/ROADMAP.md` переписан под Rust-first (цель `.exe`, критерии ≤6 МБ / ≤30 с на 4 млн / побайтовый паритет, обоснование Rust vs C, фазы R0–R5); HANDOVER и README обновлены. CI остаётся Ubuntu-only (Python 3.11/3.12), джоба `cargo test` — после R1 |
 | 2026-11-03 | `.clinerules` приведены в соответствие с Rust-first | Правила больше не противоречат структуре: п.10 — Python объявлен **эталоном и средой исследования**, целевой продукт — Rust (`rust/`, `stable-x86_64-pc-windows-gnu`, `+crt-static`, MSVC не используется, `cargo test`), паритет с Python — побайтово на эталонах; п.13 — код разрешён в `tools/` (Python) и `rust/` (workspace `rcsconv`, `rust/target/` в `.gitignore`). Смысл остальных пунктов не менялся (правка только про технологии и размещение кода) |
 | 2026-11-03 | Фаза R1: крейт `rcs-format` (контейнер, узлы, точки, `type 1`/`type 0`, писатель); 19 Rust-тестов | Порт Python-слоя формата на Rust без внешних зависимостей: `header`, `directory` (подбор директории на `0x135` по инварианту покрытия EOF, диалекты raw/export, JPEG-превью), `container` (срез без копирования + производные величины), `tile` (записи 368 Б, сборка блока байт-в-байт), `point` (тело 16 Б, подбор страйда 16/20 по bbox узла, обратное кодирование), `metadata` (`type 1`: уровни, `K = sum(words)`), `properties`+`tlv` (`type 0`, 134 Б), `writer` (`serialize`/`build_file`/`default_blocks`/`diff_ranges`). **Приёмка:** `read → write` побайтово на 9 эталонах (`probe6`, `test1`, `test2`, `level_7` 7,3 МБ + 5 файлов `golden/reference/`); `type 3` `level_7` пересобирается байт-в-байт; тела точек `probe6` кодируются обратно байт-в-байт; `type 1` уровни `[1,3]`/`[1,8,13,43]`; блок свойств = те же 134 байта; точки `probe6` = `probe6.pts` в пределах 1 мм. **Выяснено:** координаты в файле локальные (от `cube_min`), мировые = локальные + `header.center` — тест на `.pts` сначала расходился ровно на центр bbox, это зафиксировано в `Point::world`; порядок точек в контейнере — обход октодерева, а не порядок строк `.pts` (сверять по совпадению, не по индексу). Тесты без `golden/` печатают «пропуск» и проходят, как `SkipTest`. CI: добавлена джоба `cargo` (Ubuntu, без данных), из-за неё `rust-toolchain.toml` больше не фиксирует windows-триплет, а `+crt-static` перенесён в `[target.x86_64-pc-windows-gnu]` (проверено: exe по-прежнему 268 288 Б, без `libgcc`/`libwinpthread`) |
+| 2026-11-03 | Фаза R2 + R4: `.las/.laz` и `.pts` → `.rcs` в Rust; 42 Rust-теста | По решению владельца приоритет отдан LAZ, поэтому R4 сделан вместе с R2. Новые крейты: `rcs-cloud` (точка/bbox/трейт `Source`, октодерево, сборка, `Stats`, GUID без зависимостей), `cloud-pts` (`.pts` по правилам `pts_read.py`), `cloud-las` (крейт `las` 0.9 + фича `laz` — **чистый Rust, без DLL**; bbox и `count` из заголовка LAS, максимумы цвета/интенсивности по всему файлу, `--units-scale/--recenter/--*-scale`), CLI с подкомандами `las2rcs`/`pts2rcs` (файл/каталог/маска, `<имя>.rcs`, `-f`, `-m`, `-r`, `-g`, «итого»). В `rcs-format` добавлен `num.rs` — округление как в Python (половина к чётному), `encode_body` приведён к схеме `rcs_build.encode_body`. **Паритет с Python (кроме GUID):** `level_7.laz` — 807 → **28 байт** различий, все в строке GUID; `level_7.pts` — 29 байт, все в GUID; `probe6.pts` — 29 байт, все в GUID; структура: 324 680 точек, 43 узла, глубина 3, `type 1 = 1/8/13/43`. **Найдено:** запись `type 1` была сдвинута на 4 байта (`u32 0` на 52 вместо 56) — 780 тихих различий; добавлен тест «собранный `type 1` = эталонный блок». **Скорость (release):** `.pts` 0.7 с против 11.2 с у Python, `.laz` 0.7 с против 19 с; `.exe` 604 160 Б, без `libgcc`/`libwinpthread`/MSVC. Тесты: 42 (5 cloud-pts, 5 rcs-cloud, 2 num, 16 паритет rcs-format, 8 CLI-юниты, 6 интеграционных) |
 
 
 

@@ -1,0 +1,10 @@
+[package]
+name = "cloud-pts"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Leica .pts input for rcsconv"
+license = "MIT"
+
+[dependencies]
+rcs-cloud = { path = "../rcs-cloud" }

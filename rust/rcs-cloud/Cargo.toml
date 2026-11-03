@@ -1,0 +1,10 @@
+[package]
+name = "rcs-cloud"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Point cloud layer for rcsconv: octree tiling and .rcs assembly"
+license = "MIT"
+
+[dependencies]
+rcs-format = { path = "../rcs-format" }

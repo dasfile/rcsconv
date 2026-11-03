@@ -20,8 +20,9 @@
 Дополнительно: подвыборка `.pts`, LAS/LAZ → `.pts`, сравнение двух `.rcs`,
 разбор узлов и метаданных, чек-лист корпуса.
 
-**В планах** — автономный `rcsconv.exe` на Rust (один статический файл, без Python
-и DLL, побайтовый паритет с этой реализацией): [`docs/ROADMAP.md`](docs/ROADMAP.md).
+**Автономный `rcsconv.exe` (Rust)** уже собирает `.rcs` из `.las/.laz` и `.pts` —
+один статический файл 0.6 МБ, без Python и DLL, побайтовый паритет с Python-версией
+(кроме GUID): [`docs/ROADMAP.md`](docs/ROADMAP.md). Чтение `.rcs` в нём — следующий шаг.
 
 ## Быстрый старт
 
@@ -50,13 +51,23 @@ python tools/rcp_info.py "golden/*.rcp"                     # настройки
 Требования: Python 3.11 + `numpy`. `laspy` (+ бэкенд `laszip` или `lazrs`) нужен
 только для LAS/LAZ: `pip install -e ".[las]"`.
 
-Rust-порт (в работе, см. `docs/ROADMAP.md`) собирается без MSVC — нужен `rustup`
-с GNU-хостом:
+Rust-порт собирается без MSVC — нужен `rustup` с GNU-хостом:
 
 ```powershell
 cd rust
 cargo build --release      # → rust/target/release/rcsconv.exe (статический CRT)
 cargo test                 # тесты крейтов
+```
+
+Готовые команды `.exe` (то же поведение, что у скриптов: вход — файл, каталог или
+маска, выход `<имя>.rcs`, без `-f` существующий файл не перезаписывается):
+
+```powershell
+rust\target\release\rcsconv.exe las2rcs golden\level_7.laz -o out
+rust\target\release\rcsconv.exe las2rcs "golden\*.laz" -o out -f
+rust\target\release\rcsconv.exe las2rcs scan.las --units-scale 0.3048 --recenter center
+rust\target\release\rcsconv.exe pts2rcs golden\probe6.pts -o out
+rust\target\release\rcsconv.exe --help
 ```
 
 Если `rustup` ещё не стоит, его ставит `rustup-init.exe` из
@@ -106,7 +117,7 @@ tools/                 парсер, писатель, конвертеры, CLI
   rcs_write.py          сериализация: собрать файл из блоков
   analyze_*.py          разбор `type 1`, заголовков, payload'ов
 tools/tests/           85 тестов (unittest)
-rust/                  Rust-порт (целевой rcsconv.exe): rcs-format — слой формата (R1)
+rust/                  Rust-порт (rcsconv.exe): rcs-format, rcs-cloud, cloud-pts, cloud-las, rcsconv
 docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md, ROADMAP.md, LESSONS.md, GIT.md
 golden/                данные и эталоны (в git НЕ входят)
 out/                   результаты прогонов (в git НЕ входят)

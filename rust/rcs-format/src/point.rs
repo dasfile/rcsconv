@@ -96,14 +96,15 @@ pub fn decode_body(body: &[u8], cube_min: [f64; 3]) -> Result<Point> {
 
 /// Собрать 16-байтовое тело точки (обратная операция к [`decode_body`]).
 ///
-/// Квантование: `round((coord − cube_min) × 1000 × scale)`. Если значение не
-/// помещается в `u16` — ошибка [`Error::PointOutOfCube`]: точка вне куба узла.
+/// Квантование повторяет `tools/rcs_build.py`: дельта до `cube_min` сначала
+/// округляется до 1 мм, затем умножается на масштаб оси и округляется к целому
+/// (оба округления — как в Python, половина к чётному, см. [`crate::num`]).
+/// Если значение не помещается в `u16` — ошибка [`Error::PointOutOfCube`].
 pub fn encode_body(point: &Point, cube_min: [f64; 3]) -> Result<[u8; BODY_SIZE]> {
     let mut out = [0u8; BODY_SIZE];
     for axis in 0..3 {
-        let value =
-            (point.xyz()[axis] - cube_min[axis]) * 1000.0 * AXIS_SCALE[axis];
-        let quantized = value.round();
+        let delta = crate::num::round_digits(point.xyz()[axis] - cube_min[axis], 3);
+        let quantized = crate::num::round_half_even(delta * 1000.0 * AXIS_SCALE[axis]);
         if !(0.0..=u16::MAX as f64).contains(&quantized) {
             return Err(Error::PointOutOfCube {
                 axis,

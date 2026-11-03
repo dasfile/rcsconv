@@ -78,16 +78,18 @@ impl Metadata {
 /// `u32 0, u32 0, +DOUBLE_MAX ×3, −DOUBLE_MAX ×3, u32 0, −1, −1, 0`.
 pub fn metadata_record() -> [u8; METADATA_RECORD_SIZE] {
     let mut out = [0u8; METADATA_RECORD_SIZE];
+    // u32 0, u32 0 (0…8), +DOUBLE_MAX ×3 (8…32), −DOUBLE_MAX ×3 (32…56),
+    // u32 0 (56), −1, −1 (60, 64), u32 0 (68).
     bytes::put_f64(&mut out, 8, DOUBLE_MAX);
     bytes::put_f64(&mut out, 16, DOUBLE_MAX);
     bytes::put_f64(&mut out, 24, DOUBLE_MAX);
     bytes::put_f64(&mut out, 32, -DOUBLE_MAX);
     bytes::put_f64(&mut out, 40, -DOUBLE_MAX);
     bytes::put_f64(&mut out, 48, -DOUBLE_MAX);
-    bytes::put_u32(&mut out, 52, 0);
-    bytes::put_u32(&mut out, 56, u32::MAX);
+    bytes::put_u32(&mut out, 56, 0);
     bytes::put_u32(&mut out, 60, u32::MAX);
-    bytes::put_u32(&mut out, 64, 0);
+    bytes::put_u32(&mut out, 64, u32::MAX);
+    bytes::put_u32(&mut out, 68, 0);
     out
 }
 

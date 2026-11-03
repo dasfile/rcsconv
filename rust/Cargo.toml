@@ -1,8 +1,8 @@
-[workspace]
-members = ["rcs-format", "rcsconv"]
+﻿[workspace]
+members = ["cloud-las", "cloud-pts", "rcs-cloud", "rcs-format", "rcsconv"]
 resolver = "2"
 
-# Release-профиль под требование «один статический .exe» (docs/ROADMAP.md §1, §3).
+# Release-РїСЂРѕС„РёР»СЊ РїРѕРґ С‚СЂРµР±РѕРІР°РЅРёРµ В«РѕРґРёРЅ СЃС‚Р°С‚РёС‡РµСЃРєРёР№ .exeВ» (docs/ROADMAP.md В§1, В§3).
 [profile.release]
 opt-level = 3
 lto = "fat"
