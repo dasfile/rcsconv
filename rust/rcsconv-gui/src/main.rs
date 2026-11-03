@@ -14,6 +14,7 @@
 
 #[cfg(windows)]
 mod app;
+mod job;
 mod model;
 mod params;
 #[cfg(windows)]

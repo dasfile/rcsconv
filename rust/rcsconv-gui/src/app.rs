@@ -6,18 +6,29 @@
 
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Arc;
+use std::thread::JoinHandle;
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{UpdateWindow, HBRUSH};
-use windows_sys::Win32::UI::Controls::{LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL};
+use windows_sys::Win32::UI::Controls::{
+    LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, PBS_SMOOTH,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
-use crate::model::{self, Id, Queue};
+use crate::job::{self, Shared};
+use crate::model::{self, EntryStatus, Id, Queue};
 use crate::params::{RecenterChoice, Settings};
 use crate::win32;
 
 /// `COLOR_WINDOW` (5) + 1: так Win32 просит системную кисть фона окна.
 const BACKGROUND_BRUSH: u32 = 5 + 1;
+
+/// Идентификатор таймера опроса фонового потока.
+const TIMER_ID: usize = 1;
+
+/// Период опроса, мс.
+const TIMER_PERIOD: u32 = 120;
 
 /// Фильтр диалога выбора файлов.
 const OPEN_FILTER: [(&str, &str); 2] =
@@ -26,11 +37,23 @@ const OPEN_FILTER: [(&str, &str); 2] =
 /// Состояние окна: живёт в `GWLP_USERDATA` главного окна.
 struct State {
     queue: Queue,
+    /// Задание в фоне (если идёт конвертация).
+    job: Option<Job>,
+    /// Сколько результатов уже перенесено в список.
+    applied: usize,
+    /// Итог последнего прогона (показывается в подсказке).
+    summary: Option<String>,
+}
+
+/// Фоновое задание.
+struct Job {
+    shared: Arc<Shared>,
+    handle: JoinHandle<()>,
 }
 
 impl State {
     fn new() -> Box<State> {
-        Box::new(State { queue: Queue::new() })
+        Box::new(State { queue: Queue::new(), job: None, applied: 0, summary: None })
     }
 }
 
@@ -128,14 +151,14 @@ fn state_ptr(hwnd: HWND) -> *mut State {
 }
 
 /// Выполнить действие над состоянием окна, если оно уже создано.
-fn with_state(hwnd: HWND, action: impl FnOnce(&mut State)) {
+fn with_state<R>(hwnd: HWND, action: impl FnOnce(&mut State) -> R) -> Option<R> {
     let pointer = state_ptr(hwnd);
     if pointer.is_null() {
-        return;
+        return None;
     }
     // SAFETY: указатель валиден, пока окно живо; все вызовы идут из UI-потока.
     let state = unsafe { &mut *pointer };
-    action(state);
+    Some(action(state))
 }
 
 /// Забрать состояние при уничтожении окна.
@@ -213,6 +236,12 @@ unsafe extern "system" fn wndproc(
             handle_command(hwnd, (wparam & 0xFFFF) as usize);
             0
         }
+        WM_TIMER => {
+            if wparam == TIMER_ID {
+                on_timer(hwnd);
+            }
+            0
+        }
         WM_DROPFILES => {
             handle_drop(hwnd, lparam as *mut c_void);
             0
@@ -223,6 +252,17 @@ unsafe extern "system" fn wndproc(
             0
         }
         WM_DESTROY => {
+            // Отменяем фоновую работу и снимаем таймер до освобождения состояния.
+            with_state(hwnd, |state| {
+                if let Some(job) = state.job.take() {
+                    job.shared.cancel();
+                    let _ = job.handle.join();
+                }
+            });
+            // SAFETY: hwnd ещё жив на этом сообщении; таймер принадлежит окну.
+            unsafe {
+                KillTimer(hwnd, TIMER_ID);
+            }
             take_state(hwnd);
             // SAFETY: WM_DESTROY приходит последним для этого потока.
             unsafe {
@@ -308,6 +348,31 @@ fn create_controls(hwnd: HWND) {
         Id::BrowseOut.raw(),
     );
 
+    // Прогресс и кнопки запуска.
+    let bar = win32::create_child_ex(
+        hwnd,
+        WS_EX_CLIENTEDGE,
+        "msctls_progress32",
+        "",
+        WS_CHILD | WS_VISIBLE | PBS_SMOOTH as u32,
+        Id::Progress.raw(),
+    );
+    win32::progress_range(bar, 100);
+    win32::create_child(
+        hwnd,
+        "BUTTON",
+        "Конвертировать",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
+        Id::Convert.raw(),
+    );
+    win32::create_child(
+        hwnd,
+        "BUTTON",
+        "Открыть папку",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
+        Id::OpenOut.raw(),
+    );
+
     for (id, text) in [
         (Id::AddFiles, "Добавить файлы…"),
         (Id::AddFolder, "Добавить папку…"),
@@ -349,6 +414,9 @@ fn layout_controls(hwnd: HWND) {
         (Id::IntensityCheck, layout.intensity),
         (Id::ForceCheck, layout.force),
         (Id::RecursiveCheck, layout.recursive),
+        (Id::Convert, layout.convert),
+        (Id::OpenOut, layout.open_out),
+        (Id::Progress, layout.progress),
         (Id::AddFiles, layout.add_files),
         (Id::AddFolder, layout.add_folder),
         (Id::Remove, layout.remove),
@@ -368,10 +436,17 @@ fn handle_command(hwnd: HWND, id: usize) {
     } else if id == Id::Remove.raw() {
         remove_selected(hwnd);
     } else if id == Id::Clear.raw() {
-        with_state(hwnd, |state| state.queue.clear());
+        let _ = with_state(hwnd, |state| {
+            state.queue.clear();
+            state.summary = None;
+        });
         refresh(hwnd);
     } else if id == Id::BrowseOut.raw() {
         browse_output(hwnd);
+    } else if id == Id::Convert.raw() {
+        toggle_convert(hwnd);
+    } else if id == Id::OpenOut.raw() {
+        open_output_folder(hwnd);
     } else if id == Id::Close.raw() {
         save_settings(hwnd);
         win32::destroy(hwnd);
@@ -408,14 +483,188 @@ fn browse_output(hwnd: HWND) {
     refresh(hwnd);
 }
 
+/// «Конвертировать» / «Отмена» — одна кнопка на два состояния.
+fn toggle_convert(hwnd: HWND) {
+    let running = with_state(hwnd, |state| state.job.is_some()).unwrap_or(false);
+    if running {
+        cancel_convert(hwnd);
+    } else {
+        start_convert(hwnd);
+    }
+}
+
+/// Запустить конвертацию очереди в фоновом потоке.
+fn start_convert(hwnd: HWND) {
+    let settings = read_settings(hwnd);
+    if let Err(message) = settings.validate() {
+        warn(hwnd, &format!("Проверьте параметры: {message}"));
+        return;
+    }
+
+    let (paths, empty) = with_state(hwnd, |state| {
+        state.queue.reset_statuses();
+        state.applied = 0;
+        state.summary = None;
+        (state.queue.paths(), state.queue.is_empty())
+    })
+    .unwrap_or((Vec::new(), true));
+    if empty {
+        warn(hwnd, "Очередь пуста: добавьте файлы .las/.laz/.pts.");
+        return;
+    }
+
+    let shared = Shared::new();
+    let handle = job::spawn(paths, settings, shared.clone());
+    let _ = with_state(hwnd, |state| state.job = Some(Job { shared, handle }));
+
+    refresh(hwnd);
+    let bar = win32::child(hwnd, Id::Progress.raw());
+    win32::progress_set(bar, 0);
+    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Отмена");
+    // SAFETY: hwnd жив; таймер снимается в on_timer/WM_DESTROY.
+    unsafe {
+        SetTimer(hwnd, TIMER_ID, TIMER_PERIOD, None);
+    }
+}
+
+/// Попросить фоновый поток остановиться.
+fn cancel_convert(hwnd: HWND) {
+    let _ = with_state(hwnd, |state| {
+        if let Some(job) = &state.job {
+            job.shared.cancel();
+        }
+    });
+    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Отмена…");
+}
+
+/// Опрос фонового потока: прогресс-бар, состояния строк, финал.
+fn on_timer(hwnd: HWND) {
+    let info = with_state(hwnd, |state| {
+        let job = state.job.as_ref()?;
+        Some((job.shared.progress(), job.shared.results(), job.shared.is_finished()))
+    })
+    .flatten();
+    let Some(((stage, done, total), results, finished)) = info else {
+        return;
+    };
+
+    let bar = win32::child(hwnd, Id::Progress.raw());
+    let percent = if total > 0 { ((done * 100) / total).min(100) as u32 } else { 0 };
+    win32::progress_set(bar, percent);
+    let hint = win32::child(hwnd, Id::Hint.raw());
+    win32::set_text(
+        hint,
+        &format!("{}: {} из {} ({} %)", stage.title(), done, total, percent),
+    );
+
+    let _ = with_state(hwnd, |state| {
+        let list = win32::child(hwnd, Id::List.raw());
+        while state.applied < results.len() {
+            let index = state.applied;
+            let status = entry_status(results[index].status);
+            state.queue.set_status(index, status);
+            win32::list_set_cell(list, index, 3, status.label());
+            state.applied += 1;
+        }
+    });
+
+    if !finished {
+        return;
+    }
+
+    // SAFETY: hwnd жив; таймер больше не нужен.
+    unsafe {
+        KillTimer(hwnd, TIMER_ID);
+    }
+    let summary = with_state(hwnd, |state| {
+        if let Some(job) = state.job.take() {
+            let _ = job.handle.join();
+        }
+        state.applied = results.len();
+        let mut written = 0;
+        let mut skipped = 0;
+        let mut failed = 0;
+        let mut cancelled = 0;
+        for result in &results {
+            match result.status {
+                rcs_conv::Status::Written => written += 1,
+                rcs_conv::Status::Skipped => skipped += 1,
+                rcs_conv::Status::Failed => failed += 1,
+                rcs_conv::Status::Cancelled => cancelled += 1,
+            }
+        }
+        let mut text =
+            format!("Готово: записано {written}, пропущено {skipped}, ошибок {failed}");
+        if cancelled > 0 {
+            text.push_str(&format!(", отменено {cancelled}"));
+        }
+        state.summary = Some(text.clone());
+        text
+    })
+    .unwrap_or_else(|| "Готово".to_string());
+
+    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Конвертировать");
+    win32::progress_set(bar, 100);
+    refresh(hwnd);
+    win32::set_text(win32::child(hwnd, Id::Hint.raw()), &summary);
+}
+
+/// Итог конвертации одного файла → состояние строки списка.
+fn entry_status(status: rcs_conv::Status) -> EntryStatus {
+    match status {
+        rcs_conv::Status::Written => EntryStatus::Written,
+        rcs_conv::Status::Skipped => EntryStatus::Skipped,
+        rcs_conv::Status::Failed => EntryStatus::Failed,
+        rcs_conv::Status::Cancelled => EntryStatus::Cancelled,
+    }
+}
+
+/// «Открыть папку» — показать каталог результатов в проводнике.
+fn open_output_folder(hwnd: HWND) {
+    let settings = read_settings(hwnd);
+    let folder = if settings.out_dir.trim().is_empty() {
+        let first = with_state(hwnd, |state| {
+            state.queue.entries().first().map(|entry| entry.path.clone())
+        })
+        .flatten();
+        match first.and_then(|path| path.parent().map(|parent| parent.to_path_buf())) {
+            Some(parent) => parent,
+            None => {
+                warn(hwnd, "Нечего открывать: укажите папку вывода или добавьте файлы.");
+                return;
+            }
+        }
+    } else {
+        std::path::PathBuf::from(settings.out_dir.trim())
+    };
+    if !folder.exists() {
+        warn(hwnd, &format!("Папки пока нет: {}", folder.display()));
+        return;
+    }
+    if !win32::shell_open(&folder) {
+        warn(hwnd, &format!("Не удалось открыть {}", folder.display()));
+    }
+}
+
+/// Короткое сообщение об ошибке поверх окна.
+fn warn(hwnd: HWND, text: &str) {
+    let text = win32::wide(text);
+    let caption = win32::wide("rcsconv-gui");
+    // SAFETY: строки живут до возврата из MessageBoxW; hwnd — владелец окна.
+    unsafe {
+        MessageBoxW(hwnd, text.as_ptr(), caption.as_ptr(), MB_ICONWARNING | MB_OK);
+    }
+}
+
 /// «Добавить файлы…» — диалог с мультивыбором.
 fn add_files(hwnd: HWND) {
     let files = win32::open_files(hwnd, "Добавить облака точек", &OPEN_FILTER);
     if files.is_empty() {
         return;
     }
-    with_state(hwnd, |state| {
+    let _ = with_state(hwnd, |state| {
         state.queue.add(&files, false);
+        state.summary = None;
     });
     refresh(hwnd);
 }
@@ -425,8 +674,9 @@ fn add_folder(hwnd: HWND) {
     let Some(folder) = win32::browse_folder(hwnd, "Выберите папку с облаками точек") else {
         return;
     };
-    with_state(hwnd, |state| {
+    let _ = with_state(hwnd, |state| {
         state.queue.add(&[folder], true);
+        state.summary = None;
     });
     refresh(hwnd);
 }
@@ -437,8 +687,9 @@ fn remove_selected(hwnd: HWND) {
     let Some(index) = win32::list_selected(list) else {
         return;
     };
-    with_state(hwnd, |state| {
+    let _ = with_state(hwnd, |state| {
         state.queue.remove(index);
+        state.summary = None;
     });
     refresh(hwnd);
 }
@@ -449,8 +700,9 @@ fn handle_drop(hwnd: HWND, hdrop: *mut c_void) {
     if files.is_empty() {
         return;
     }
-    with_state(hwnd, |state| {
+    let _ = with_state(hwnd, |state| {
         state.queue.add(&files, true);
+        state.summary = None;
     });
     refresh(hwnd);
 }
@@ -485,7 +737,7 @@ fn refresh(hwnd: HWND) {
         win32::list_add_row(list, index, &cells);
     }
     let hint = win32::child(hwnd, Id::Hint.raw());
-    win32::set_text(hint, &hint_text(hwnd, &state.queue));
+    win32::set_text(hint, &hint_text(hwnd, state));
 }
 
 /// Имена настроек в реестре.
@@ -552,10 +804,13 @@ fn save_settings(hwnd: HWND) {
     win32::registry_save(&settings.to_pairs());
 }
 
-/// Подсказка: ошибки параметров важнее состояния очереди.
-fn hint_text(hwnd: HWND, queue: &Queue) -> String {
+/// Подсказка: итог прогона, ошибки параметров или состояние очереди.
+fn hint_text(hwnd: HWND, state: &State) -> String {
+    if let Some(summary) = &state.summary {
+        return summary.clone();
+    }
     match read_settings(hwnd).validate() {
-        Ok(()) => model::queue_hint(queue),
+        Ok(()) => model::queue_hint(&state.queue),
         Err(message) => format!("Ошибка параметров: {message}"),
     }
 }

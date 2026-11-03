@@ -48,6 +48,10 @@ pub enum Id {
     ForceCheck = 116,
     /// Флажок «С подкаталогами».
     RecursiveCheck = 117,
+    /// Кнопка «Конвертировать» / «Отмена».
+    Convert = 118,
+    /// Кнопка «Открыть папку».
+    OpenOut = 119,
     /// Подпись «Папка вывода».
     LabelOutDir = 120,
     /// Подпись «Масштаб».
@@ -58,6 +62,8 @@ pub enum Id {
     LabelMaxTile = 123,
     /// Подпись «GUID».
     LabelGuid = 124,
+    /// Полоса прогресса.
+    Progress = 125,
 }
 
 impl Id {
@@ -119,6 +125,12 @@ pub struct Layout {
     pub force: Rect,
     /// Флажок «С подкаталогами».
     pub recursive: Rect,
+    /// «Конвертировать» / «Отмена».
+    pub convert: Rect,
+    /// «Открыть папку».
+    pub open_out: Rect,
+    /// Полоса прогресса.
+    pub progress: Rect,
     /// «Добавить файлы…».
     pub add_files: Rect,
     /// «Добавить папку…».
@@ -156,7 +168,7 @@ pub fn scale(px: i32, dpi: u32) -> i32 {
 }
 
 /// Минимальный размер клиентской области при 96 dpi (ширина, высота).
-pub const MIN_SIZE_96: (i32, i32) = (660, 480);
+pub const MIN_SIZE_96: (i32, i32) = (900, 480);
 
 /// Раскладка окна: заголовок, подсказка, ряд кнопок, список.
 ///
@@ -176,6 +188,9 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
 
     let buttons_y = height - margin - button_h;
     let params_gap = scale(8, dpi);
+    let progress_h = scale(16, dpi);
+    let progress_y = buttons_y - gap - progress_h;
+    let action_y = progress_y - gap - button_h;
     let row = scale(26, dpi);
     let row_gap = scale(6, dpi);
     let label_w = scale(112, dpi);
@@ -183,7 +198,7 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
     let field_w = (width - margin - field_x).max(scale(80, dpi));
 
     // Четыре строки параметров снизу вверх: поля GUID, точек, центрирования, флажки.
-    let checks_y = buttons_y - params_gap - row;
+    let checks_y = action_y - params_gap - row;
     let row3_y = checks_y - row_gap - row;
     let row2_y = row3_y - row_gap - row;
     let row1_y = row2_y - row_gap - row;
@@ -273,6 +288,15 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
         h: (row1_y - params_gap - list_top).max(scale(80, dpi)),
     };
 
+    let progress = Rect { x: margin, y: progress_y, w: width - margin * 2, h: progress_h };
+    let convert = Rect { x: margin, y: action_y, w: scale(170, dpi), h: button_h };
+    let open_out = Rect {
+        x: convert.x + convert.w + gap,
+        y: action_y,
+        w: scale(150, dpi),
+        h: button_h,
+    };
+
     Layout {
         title,
         hint,
@@ -292,6 +316,9 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
         intensity,
         force,
         recursive,
+        convert,
+        open_out,
+        progress,
         add_files,
         add_folder,
         remove,

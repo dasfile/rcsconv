@@ -105,7 +105,7 @@ CLI остаётся с консолью и прежними кодами вых
 | **G1** ✅ | крейт `rcsconv-gui`: окно, message loop, манифест (comctl32 v6, `PerMonitorV2`), `build.rs` через `windres`, `panic = "unwind"` + `catch_unwind` в worker'е | окно открывается без консоли, зависимости `objdump` — только system DLL, размер замерен, `cargo check --workspace` на Linux проходит |
 | **G2** ✅ | очередь файлов: `GetOpenFileNameW`, `SHBrowseForFolderW`, drag&drop (`WM_DROPFILES`), `SysListView32`, удаление/очистка, дубликаты | набор файлов совпадает с `expand_sources`; тесты модели очереди |
 | **G3** ✅ | параметры (папка вывода, `--units-scale`, recenter, флаги цвета/интенсивности, `-m`, GUID), валидация, сохранение в `HKCU\Software\rcsconv\gui` | тест «состояние GUI → `Options` == `Options::parse` для эквивалентной строки» |
-| **G4** | worker-поток, прогресс-бар по этапам и точкам (`WM_TIMER` + атомарные счётчики), «Отмена», лог, «открыть папку», итог | `level_7.laz` из GUI с `-g` = тот же файл, что у CLI; отмена не оставляет файла; UI не замирает |
+| **G4** ✅ | worker-поток, прогресс-бар по этапам и точкам (`WM_TIMER` + атомарные счётчики), «Отмена», лог, «открыть папку», итог | `level_7.laz` из GUI с `-g` = тот же файл, что у CLI; отмена не оставляет файла; UI не замирает |
 | **G5** | R3: `inspect`/`rcs2pts` в CLI + панель «Инфо» и экспорт в `.pts` в GUI | паритет с `tools/rcs2pts.py` (±1e-6), `inspect` = `rcs_inspect.py` |
 | **G6** | полировка (горячие клавиши, геометрия окна, таскбар-прогресс), `docs/GUI.md`, приёмка в Revit 2023 | чек-лист `docs/GUI.md` воспроизводим другим человеком |
 
