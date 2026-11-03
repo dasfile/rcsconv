@@ -23,7 +23,7 @@ Revit на машине) на **9 реальных облаках** (0.3–4.0 �
 | Корпус: `golden/` — ветки `.pts` и `.laz`, raw+export+reference | ✅ `docs/CORPUS.md` |
 | Спецификация + чек-лист для другой реализации | `docs/RCS-FORMAT.md` §9.1, Приложение C |
 | Тесты | 85 (`unittest`); без `golden/` часть классов скипается |
-| Целевой продукт: `rcsconv.exe` на Rust (GNU, `crt-static`) | ⏳ R0 сделан, R1–R5 — `docs/ROADMAP.md` |
+| Целевой продукт: `rcsconv.exe` на Rust (GNU, `crt-static`) | ⏳ R0–R1 сделаны, R2–R5 — `docs/ROADMAP.md` |
 
 **Обязательных задач нет.** Открытые вопросы (`docs/RCS-FORMAT.md` §12) — «на
 понимание», на совместимость не влияют: смысл записей `kind 0…7`, поля записи узла
@@ -228,6 +228,33 @@ Revit на машине) на **9 реальных облаках** (0.3–4.0 �
 - Каталог `rust/` закреплён в `.clinerules`: п.10 (Rust — целевой продукт, GNU,
   без MSVC) и п.13 (код — `tools/` и `rust/`); `rust/target/` в `.gitignore`
 
+### Фаза R1 — крейт `rcs-format`: контейнер, узлы, тела точек, `type 1`, `type 0`  ✅
+
+- [x] `rust/rcs-format` (без внешних зависимостей): `header` (разбор/сборка,
+      GUID `{8_4_4_4_12}` на `0xE3`, `blockCount` @`0x129`), `directory`
+      (подбор начала на `0x135`, инвариант «блоки стыкуются и кончаются на EOF»,
+      диалект raw/export, JPEG-превью), `container` (срез без копирования,
+      производные величины), `tile` (`iter_tiles`, `tile_payload`,
+      `tile_block_bytes`), `point` (`decode_body`/`encode_body`/`decode_tile`,
+      подбор страйда 16/20 по bbox узла), `metadata` (`type 1`: слова по уровням,
+      `K = sum(words)`), `properties` + `tlv` (`type 0`), `writer`
+      (`serialize`, `build_file`, `default_blocks`, `diff_ranges`), `bytes`
+- [x] Координаты в `Point` — **локальные**; мировые = локальные + `header.center`,
+      как в `tools/rcs2pts.py` (нашёл на тесте: сравнение с `.pts` сначала не
+      сходилось ровно на центр bbox). Отражено в `Point::world` и в доке модуля
+- [x] 15 интеграционных тестов (`tests/parity.rs`) + 4 теста CLI (`rcsconv`)
+- **Приёмка:** `read → write` **побайтово** на 9 эталонах — `probe6`, `test1`,
+  `test2`, `level_7` (7.3 МБ) и `golden/reference/{probe6,test1,test2,level_7,raw_v134}_orig|v134.rcs`
+  (5 файлов); блок `type 3` `level_7` пересобирается байт-в-байт; тела точек
+  `probe6` кодируются обратно байт-в-байт; `type 1`: уровни `[1,3]` (`probe6`) и
+  `[1,8,13,43]` (`level_7`), `K = sum(words)`; блок свойств пересобирается в те
+  же 134 байта; точки `probe6` совпали с `probe6.pts` в пределах 1 мм
+- Тесты без данных (`golden/` нет в git) печатают «пропуск» и проходят — как
+  `SkipTest` в Python-версии
+- [x] CI: джоба `cargo` (Ubuntu) — `cargo test --workspace`; поэтому
+      `rust-toolchain.toml` больше не фиксирует windows-триплет (он ломал бы Linux),
+      а `+crt-static` перенесён в `[target.x86_64-pc-windows-gnu]`
+
 ## Пробы: направление закрыто (не повторять)
 
 Синтетические облака ReCap принимает нестабильно, лог пуст. Ниже — результат, чтобы
@@ -304,6 +331,7 @@ python tools/rcs_compare.py A.rcs B.rcs                    # сравнение 
 | 2026-11-02 | уточнение байта интенсивности и цвета | Цвет (`[9:12]`, BGR) копируется **дословно**: 100 % точек эталонов в палитре источника, в обеих ветках (`.pts` и `.laz`). Байт `[8]` — канал раскраски: `.pts` с нулевой интенсивностью → 255 у всех; `.laz` (`HasIntensity=0`) → линейный градиент по высоте (corr с z = 1.000); без колонки → мусор. ОПРОВЕРГНУТО «`[12:16]` всегда 0»: у корпуса `[12]` = 0…255, `[13]` = 0…4. ULP: два импорта одного `.pts` дают разный младший бит double в `center`/`half`, поэтому побайтовое доказательство перенесено на `reference/*_orig.rcs` |
 | 2026-11-03 | Rust-first: R0 (тулчейн) + документы, 4 Rust-теста | Роли зафиксированы: **Python — эталон/оракул и среда исследования, Rust — целевой продукт**; оптимизация numpy снята с критического пути. Поставлен `rustup` без прав администратора: `stable-x86_64-pc-windows-gnu` (rustc 1.99.1, minimal), линкер — MinGW `C:\mingw64` (gcc 16.2), MSVC не используется. Учебная грабля: `rustup-init --default-host` не сменил дефолт → `channel = "stable"` развернулся в msvc и rustup подтянул второй тулчейн; лечится явным триплетом в `rust-toolchain.toml` + `rustup set default-host` (msvc удалён). Каркас `rust/`: workspace + крейт `rcsconv`, release-профиль (`lto=fat`, `cgu=1`, `strip`, `panic=abort`), `.cargo/config.toml` с `+crt-static`. Приёмка R0: `rcsconv.exe` **268 288 Б**, зависимости только `KERNEL32`/`ntdll`/UCRT (без `libgcc`/`libwinpthread`/MSVC-рантайма), `--version`/`--help`/код 2 на неизвестный аргумент, `cargo test` 4 passed; Python-тесты — 85 OK (3 скипа). Документы: новый `docs/LESSONS.md` (пост-мортем 2025: вывод, 7 ошибок, почему казалось «закрытой дверью», что сработало, что зафиксировано) со ссылками из README и §13; `docs/ROADMAP.md` переписан под Rust-first (цель `.exe`, критерии ≤6 МБ / ≤30 с на 4 млн / побайтовый паритет, обоснование Rust vs C, фазы R0–R5); HANDOVER и README обновлены. CI остаётся Ubuntu-only (Python 3.11/3.12), джоба `cargo test` — после R1 |
 | 2026-11-03 | `.clinerules` приведены в соответствие с Rust-first | Правила больше не противоречат структуре: п.10 — Python объявлен **эталоном и средой исследования**, целевой продукт — Rust (`rust/`, `stable-x86_64-pc-windows-gnu`, `+crt-static`, MSVC не используется, `cargo test`), паритет с Python — побайтово на эталонах; п.13 — код разрешён в `tools/` (Python) и `rust/` (workspace `rcsconv`, `rust/target/` в `.gitignore`). Смысл остальных пунктов не менялся (правка только про технологии и размещение кода) |
+| 2026-11-03 | Фаза R1: крейт `rcs-format` (контейнер, узлы, точки, `type 1`/`type 0`, писатель); 19 Rust-тестов | Порт Python-слоя формата на Rust без внешних зависимостей: `header`, `directory` (подбор директории на `0x135` по инварианту покрытия EOF, диалекты raw/export, JPEG-превью), `container` (срез без копирования + производные величины), `tile` (записи 368 Б, сборка блока байт-в-байт), `point` (тело 16 Б, подбор страйда 16/20 по bbox узла, обратное кодирование), `metadata` (`type 1`: уровни, `K = sum(words)`), `properties`+`tlv` (`type 0`, 134 Б), `writer` (`serialize`/`build_file`/`default_blocks`/`diff_ranges`). **Приёмка:** `read → write` побайтово на 9 эталонах (`probe6`, `test1`, `test2`, `level_7` 7,3 МБ + 5 файлов `golden/reference/`); `type 3` `level_7` пересобирается байт-в-байт; тела точек `probe6` кодируются обратно байт-в-байт; `type 1` уровни `[1,3]`/`[1,8,13,43]`; блок свойств = те же 134 байта; точки `probe6` = `probe6.pts` в пределах 1 мм. **Выяснено:** координаты в файле локальные (от `cube_min`), мировые = локальные + `header.center` — тест на `.pts` сначала расходился ровно на центр bbox, это зафиксировано в `Point::world`; порядок точек в контейнере — обход октодерева, а не порядок строк `.pts` (сверять по совпадению, не по индексу). Тесты без `golden/` печатают «пропуск» и проходят, как `SkipTest`. CI: добавлена джоба `cargo` (Ubuntu, без данных), из-за неё `rust-toolchain.toml` больше не фиксирует windows-триплет, а `+crt-static` перенесён в `[target.x86_64-pc-windows-gnu]` (проверено: exe по-прежнему 268 288 Б, без `libgcc`/`libwinpthread`) |
 
 
 

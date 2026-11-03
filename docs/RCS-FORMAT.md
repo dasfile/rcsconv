@@ -640,6 +640,19 @@ CLI (`tools/cli_paths.py`): первый аргумент — вход (файл
 | Инварианты | `tools/rcs_checks.py` (`check_invariants`) |
 | Проект `.rcp` (ZIP + XML, настройки импорта) | `tools/rcp_info.py` (`read_project`, `describe`) |
 
+Rust-порт (`rust/rcs-format`, крейт `rcs_format`; паритет — `cargo test`):
+
+| Что | Где |
+|---|---|
+| Заголовок, GUID, `to_bytes` | `header.rs` (`Header::parse`, `to_bytes`, `normalize_guid`) |
+| Директория блоков, диалект, JPEG-превью | `directory.rs` (`find_directory`, `Block`, `Dialect`) |
+| Контейнер и производные величины | `container.rs` (`Container::parse`, `block_of_type`, `tile_count`, `bytes_per_point`) |
+| Записи узлов (`type 3`) | `tile.rs` (`iter_tiles`, `tile_payload`, `tile_block_bytes`) |
+| Тела точек (`type 11`) | `point.rs` (`decode_body`, `encode_body`, `decode_tile`, `decode_all`) |
+| Блок метаданных (`type 1`) | `metadata.rs` (`Metadata::parse`, `build_metadata_block`) |
+| Блок свойств (`type 0`/`type 5`) | `properties.rs`, `tlv.rs` (`Properties::parse`, `build_properties_block`) |
+| Сериализация файла | `writer.rs` (`serialize`, `build_file`, `default_blocks`, `diff_ranges`) |
+
 ## Приложение B. Запуск
 
 ## Приложение C. Чек-лист реализации на другом языке
@@ -647,6 +660,12 @@ CLI (`tools/cli_paths.py`): первый аргумент — вход (файл
 Инварианты, которые обязана соблюдать любая реализация (Rust/C++/Go/…), чтобы
 файл был принят Revit и совпал с эталонами ReCap. Каждый пункт проверяется
 тестами проекта (`tools/tests/test_container.py`) и `tools/validate_pts.py`.
+
+**Статус Rust-порта** (`rust/rcs-format`, фаза R1): закрыты пункты «Файл и
+заголовок», «Дерево», «Точки», «Метаданные», «Свойства» — `read → write` даёт
+побайтово идентичный файл на 9 эталонах (`probe6`, `test1`, `test2`, `level_7`
+и 5 файлов `golden/reference/`), `cargo test -p rcs-format`. Генерация контейнера
+из облака точек (дерево и тела с нуля) — фаза R2, приёмка `.pts` → `.rcs`.
 
 **Файл и заголовок**
 

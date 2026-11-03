@@ -1,5 +1,5 @@
 [workspace]
-members = ["rcsconv"]
+members = ["rcs-format", "rcsconv"]
 resolver = "2"
 
 # Release-профиль под требование «один статический .exe» (docs/ROADMAP.md §1, §3).

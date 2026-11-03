@@ -1,4 +1,5 @@
 # Статическая линковка CRT: бинарник не зависит от mingw-рантайма и MSVC
 # (docs/ROADMAP.md §1: «один файл, без DLL, без установки»).
-[build]
+# Настройка привязана к GNU-таргету Windows: на Linux/CI она не применяется.
+[target.x86_64-pc-windows-gnu]
 rustflags = ["-C", "target-feature=+crt-static"]

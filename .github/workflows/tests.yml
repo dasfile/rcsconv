@@ -30,3 +30,16 @@ jobs:
 
       - name: Run tests
         run: python -m unittest discover -s tools/tests -v
+
+  # Rust-порт (docs/ROADMAP.md R1): тесты крейтов. Данные (golden/) не нужны —
+  # паритетные тесты печатают «пропуск» и проходят, как SkipTest в Python.
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run cargo test
+        run: cargo test --workspace --manifest-path rust/Cargo.toml

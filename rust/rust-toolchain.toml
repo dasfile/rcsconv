@@ -1,6 +1,7 @@
-# Тулчейн фиксирован решением владельца: GNU-хост, MSVC не используется
-# (docs/ROADMAP.md §3). Триплет указан явно: `channel = "stable"` разворачивается
-# в хост по умолчанию из rustup и может оказаться msvc.
+# Тулчейн: канал stable. Хост задаётся установкой rustup (на машине владельца —
+# `rustup set default-host x86_64-pc-windows-gnu`, MSVC не используется,
+# docs/ROADMAP.md §3). Явный триплет здесь сломал бы сборку на Linux/CI.
 [toolchain]
-channel = "stable-x86_64-pc-windows-gnu"
+channel = "stable"
 profile = "minimal"
+

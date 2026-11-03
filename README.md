@@ -60,9 +60,10 @@ cargo test                 # тесты крейтов
 ```
 
 Если `rustup` ещё не стоит, его ставит `rustup-init.exe` из
-[rustup.rs](https://rustup.rs/) (`--default-host x86_64-pc-windows-gnu`,
-`--profile minimal`). Триплет зафиксирован в `rust/rust-toolchain.toml`, поэтому
-`cargo` сам подтянет GNU-канал.
+[rustup.rs](https://rustup.rs/) (`--profile minimal`). Хост должен быть **GNU**,
+иначе `cargo` возьмёт MSVC-тулчейн: `rustup set default-host x86_64-pc-windows-gnu`
+(проверка — `rustc -vV` → `host: x86_64-pc-windows-gnu`). `rust-toolchain.toml`
+специально не фиксирует триплет, чтобы сборка работала и на Linux (CI).
 
 ## Как проверялось
 
@@ -105,7 +106,7 @@ tools/                 парсер, писатель, конвертеры, CLI
   rcs_write.py          сериализация: собрать файл из блоков
   analyze_*.py          разбор `type 1`, заголовков, payload'ов
 tools/tests/           85 тестов (unittest)
-rust/                  Rust-порт (целевой rcsconv.exe): workspace, пока каркас R0
+rust/                  Rust-порт (целевой rcsconv.exe): rcs-format — слой формата (R1)
 docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md, ROADMAP.md, LESSONS.md, GIT.md
 golden/                данные и эталоны (в git НЕ входят)
 out/                   результаты прогонов (в git НЕ входят)

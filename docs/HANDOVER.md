@@ -24,13 +24,15 @@ Rust (`docs/ROADMAP.md`); Python остаётся эталоном и ораку
 | Корпус и эталоны: `corpus_status`, `validate_pts`, `pts_subset`, `las2pts` | ✅ `docs/CORPUS.md` |
 | Тесты | 85 (`python -m unittest discover -s tools/tests`) |
 | Rust-каркас `rust/` (R0): GNU-тулчейн, статический `rcsconv.exe` | ✅ |
+| Rust `rcs-format` (R1): контейнер, узлы, точки, `type 1`/`type 0`, писатель | ✅ паритет на 9 эталонах |
 
 ## Следующая задача
 
-**R0/R1: Rust-порт** (`docs/ROADMAP.md`). R0 — поставить `rustup` с GNU-таргетом
-(`stable-x86_64-pc-windows-gnu`, без MSVC) и собрать «hello»-`rcsconv.exe`;
-R1 — workspace `rust/` и крейт `rcs-format` (заголовок, директория, блоки, тело
-точки, `type 1`, `type 0`) с побайтовым паритетом на `probe6/test1/test2`.
+**R2: октодерево и `.pts` → `.rcs`** (`docs/ROADMAP.md`). Готов слой формата
+(крейт `rcs-format`: заголовок, директория, узлы, тела точек, `type 1`, `type 0`,
+писатель — побайтовый паритет на 9 эталонах). R2 добавляет `rcs-cloud` (дерево
+плиток) и парсер `.pts`, затем подкоманду `pts2rcs`; приёмка — `level_7.pts`
+(43 узла) байт-в-байт с Python-эталоном.
 
 Python-реализация по приёмке закрыта и с критического пути снята: она эталон и
 оракул для паритетных тестов, а также среда исследования §12. Оптимизация Python
