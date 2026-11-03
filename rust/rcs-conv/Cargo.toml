@@ -1,0 +1,12 @@
+[package]
+name = "rcs-conv"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Conversion jobs for rcsconv (shared by the CLI and the Win32 GUI)"
+license = "MIT"
+
+[dependencies]
+cloud-las = { path = "../cloud-las" }
+cloud-pts = { path = "../cloud-pts" }
+rcs-cloud = { path = "../rcs-cloud" }

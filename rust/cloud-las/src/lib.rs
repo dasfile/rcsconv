@@ -17,6 +17,7 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 
+use rcs_cloud::progress::{NoProgress, Progress, Stage};
 use rcs_cloud::{Bounds, CloudPoint, Error, Result, Source};
 
 /// Откуда вычитать координаты при `--recenter`.
@@ -110,51 +111,87 @@ impl Default for LasOptions {
     }
 }
 
-/// Источник точек LAS/LAZ.
-///
-/// Файл читается **один раз**: `bounds()` и `points()` берут готовые значения
-/// из кеша (`points()` забирает вектор, повторный вызов перечитывает файл).
-pub struct LasSource {
-    path: PathBuf,
-    options: LasOptions,
-    cache: RefCell<Option<Loaded>>,
-}
+/// Сколько точек читать за один заход (пакеты `read_points_into`).
+const READ_CHUNK: u64 = 1 << 16;
 
-/// Прочитанное содержимое файла.
-struct Loaded {
+/// Что берётся из заголовка LAS: bbox, `count`, наличие цвета.
+#[derive(Debug, Clone, Copy)]
+struct HeaderInfo {
     count: u64,
     low: [f64; 3],
     high: [f64; 3],
-    points: Vec<CloudPoint>,
+    has_color: bool,
+}
+
+/// Источник точек LAS/LAZ.
+///
+/// `bounds()` читает **только заголовок**, точки — при первом `points()`/`points_with()`
+/// и кешируются (`points()` забирает вектор, повторный вызов перечитывает файл).
+pub struct LasSource {
+    path: PathBuf,
+    options: LasOptions,
+    header: RefCell<Option<HeaderInfo>>,
+    cache: RefCell<Option<Vec<CloudPoint>>>,
 }
 
 impl LasSource {
     /// Источник для пути с настройками чтения.
     pub fn new(path: impl Into<PathBuf>, options: LasOptions) -> LasSource {
-        LasSource { path: path.into(), options, cache: RefCell::new(None) }
+        LasSource {
+            path: path.into(),
+            options,
+            header: RefCell::new(None),
+            cache: RefCell::new(None),
+        }
     }
 
-    /// Прочитать и закешировать файл (повторный вызов — без чтения).
-    fn ensure_loaded(&self) -> Result<()> {
+    /// Заголовок файла (читается один раз).
+    fn header_info(&self) -> Result<HeaderInfo> {
+        if let Some(info) = self.header.borrow().as_ref() {
+            return Ok(*info);
+        }
+        let reader = las::Reader::from_path(&self.path).map_err(map_error)?;
+        let header = reader.header();
+        let bounds = header.bounds();
+        let info = HeaderInfo {
+            count: header.number_of_points(),
+            low: [bounds.min.x, bounds.min.y, bounds.min.z],
+            high: [bounds.max.x, bounds.max.y, bounds.max.z],
+            has_color: header.point_format().has_color,
+        };
+        *self.header.borrow_mut() = Some(info);
+        Ok(info)
+    }
+
+    /// Прочитать и закешировать точки (повторный вызов — без чтения).
+    fn ensure_loaded(&self, progress: &dyn Progress) -> Result<()> {
         if self.cache.borrow().is_some() {
             return Ok(());
         }
+        let info = self.header_info()?;
+        let count = info.count;
+        let has_color = info.has_color;
+        let low = info.low;
+        let high = info.high;
         let mut reader = las::Reader::from_path(&self.path).map_err(map_error)?;
-        let (count, low, high, has_color) = {
-            let header = reader.header();
-            let bounds = header.bounds();
-            (
-                header.number_of_points(),
-                [bounds.min.x, bounds.min.y, bounds.min.z],
-                [bounds.max.x, bounds.max.y, bounds.max.z],
-                header.point_format().has_color,
-            )
-        };
 
-        let mut raw = Vec::with_capacity(count as usize);
-        reader
-            .read_all_points_into(&mut raw)
-            .map_err(map_error)?;
+        // Читаем пакетами: результат тот же, что у `read_all_points_into`,
+        // но появляется возможность отчитываться о прогрессе и отменять.
+        let mut raw: Vec<las::Point> = Vec::with_capacity(count as usize);
+        progress.stage(Stage::Read, 0, count);
+        loop {
+            let before = raw.len() as u64;
+            let read = reader
+                .read_points_into(READ_CHUNK, &mut raw)
+                .map_err(map_error)?;
+            if read == 0 {
+                break;
+            }
+            progress.stage(Stage::Read, before + read, count);
+            if progress.cancelled() {
+                return Err(Error::Cancelled);
+            }
+        }
 
         // Максимумы — по всему файлу: так же считает эталон (`chunk_iterator`).
         let mut color_max = 0u16;
@@ -211,8 +248,13 @@ impl LasSource {
             })
             .collect();
 
-        *self.cache.borrow_mut() = Some(Loaded { count, low, high, points });
+        *self.cache.borrow_mut() = Some(points);
         Ok(())
+    }
+
+    /// Забрать прочитанные точки из кеша.
+    fn take(&self) -> Vec<CloudPoint> {
+        self.cache.borrow_mut().take().unwrap_or_default()
     }
 }
 
@@ -235,17 +277,21 @@ fn to8(value: u16, scale: f64) -> u8 {
 
 impl Source for LasSource {
     fn bounds(&self) -> Result<Bounds> {
-        self.ensure_loaded()?;
-        let cache = self.cache.borrow();
-        let loaded = cache.as_ref().expect("файл прочитан");
-        Ok(Bounds { low: loaded.low, high: loaded.high, count: loaded.count })
+        self.bounds_with(&NoProgress)
+    }
+
+    fn bounds_with(&self, _progress: &dyn Progress) -> Result<Bounds> {
+        let info = self.header_info()?;
+        Ok(Bounds { low: info.low, high: info.high, count: info.count })
     }
 
     fn points(&mut self) -> Result<Vec<CloudPoint>> {
-        self.ensure_loaded()?;
-        let mut cache = self.cache.borrow_mut();
-        let loaded = cache.as_mut().expect("файл прочитан");
-        Ok(loaded.points.drain(..).collect())
+        self.points_with(&NoProgress)
+    }
+
+    fn points_with(&mut self, progress: &dyn Progress) -> Result<Vec<CloudPoint>> {
+        self.ensure_loaded(progress)?;
+        Ok(self.take())
     }
 
     fn describe(&self) -> String {

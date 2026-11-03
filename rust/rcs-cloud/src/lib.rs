@@ -14,11 +14,13 @@ pub mod error;
 pub mod guid;
 pub mod octree;
 pub mod point;
+pub mod progress;
 pub mod source;
 
-pub use build::{build_from_points, build_from_source, BuildOptions, Stats};
+pub use build::{build_from_points, build_from_points_with, build_from_source, build_from_source_with, BuildOptions, Stats};
 pub use error::{Error, Result};
 pub use point::CloudPoint;
+pub use progress::{NoProgress, Progress, Stage};
 pub use rcs_format::num::round_half_even;
 pub use rcs_format::header::normalize_guid;
 pub use source::{Bounds, Source};

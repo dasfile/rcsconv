@@ -13,8 +13,12 @@ use rcs_format::{metadata, num, properties, writer};
 use crate::error::{Error, Result};
 use crate::octree::{self, Cell};
 use crate::point::CloudPoint;
+use crate::progress::{NoProgress, Progress, Stage};
 use crate::source::{Bounds, Source};
 use crate::{BBOX_ROUND, DEFAULT_CHUNK_ID, MAX_TILE_POINTS};
+
+/// Как часто отчитываться о прогрессе и проверять отмену, точек.
+const REPORT_EVERY: usize = 1 << 16;
 
 /// Как собирать `.rcs`.
 #[derive(Debug, Clone)]
@@ -65,11 +69,23 @@ pub fn build_from_source(
     source: &mut dyn Source,
     options: &BuildOptions,
 ) -> Result<(Vec<u8>, Stats)> {
-    let bounds = source.bounds()?;
-    let points = source.points()?;
-    build_from_points(&points, &bounds, options)
+    build_from_source_with(source, options, &NoProgress)
 }
 
+/// Собрать `.rcs` из источника, отчитываясь о прогрессе и слушая отмену.
+pub fn build_from_source_with(
+    source: &mut dyn Source,
+    options: &BuildOptions,
+    progress: &dyn Progress,
+) -> Result<(Vec<u8>, Stats)> {
+    let bounds = source.bounds_with(progress)?;
+    check_cancel(progress)?;
+    progress.stage(Stage::Read, 0, bounds.count);
+    let points = source.points_with(progress)?;
+    progress.stage(Stage::Read, points.len() as u64, bounds.count);
+    check_cancel(progress)?;
+    build_from_points_with(&points, &bounds, options, progress)
+}
 
 /// Собрать `.rcs` из готового набора точек.
 pub fn build_from_points(
@@ -77,12 +93,24 @@ pub fn build_from_points(
     bounds: &Bounds,
     options: &BuildOptions,
 ) -> Result<(Vec<u8>, Stats)> {
+    build_from_points_with(points, bounds, options, &NoProgress)
+}
+
+/// Собрать `.rcs` из готового набора точек, отчитываясь о прогрессе.
+pub fn build_from_points_with(
+    points: &[CloudPoint],
+    bounds: &Bounds,
+    options: &BuildOptions,
+    progress: &dyn Progress,
+) -> Result<(Vec<u8>, Stats)> {
     if points.is_empty() {
         return Err(Error::EmptyCloud);
     }
     if options.max_per_tile == 0 || options.max_per_tile > MAX_TILE_POINTS {
         return Err(Error::MaxPerTile(options.max_per_tile));
     }
+    let total = points.len() as u64;
+    progress.stage(Stage::Octree, 0, total);
 
     let center = bounds.center();
     let half_extent = bounds.half_extent();
@@ -93,6 +121,8 @@ pub fn build_from_points(
     let half = octree::root_half(extent);
     let depth = octree::choose_depth(points, center, half, options.max_per_tile)?;
     let edge = (2.0 * half) / (1_u64 << depth) as f64;
+
+    check_cancel(progress)?;
 
     // Группировка: ячейка → индексы точек в порядке файла.
     let mut cells: HashMap<Cell, Vec<u32>> = HashMap::new();
@@ -106,7 +136,13 @@ pub fn build_from_points(
             .entry(octree::cell_of(local, half, depth))
             .or_default()
             .push(index as u32);
+        if index % REPORT_EVERY == REPORT_EVERY - 1 {
+            progress.stage(Stage::Octree, index as u64 + 1, total);
+            check_cancel(progress)?;
+        }
     }
+    progress.stage(Stage::Octree, total, total);
+    check_cancel(progress)?;
 
     // DFS-порядок узлов.
     let mut order: Vec<(Vec<u8>, Cell)> = cells
@@ -119,7 +155,9 @@ pub fn build_from_points(
     let mut payloads: Vec<u8> = Vec::new();
     let mut max_points_per_tile = 0usize;
 
-    for (_, cell) in &order {
+    let tile_total = order.len() as u64;
+    progress.stage(Stage::Tiles, 0, tile_total);
+    for (index, (_, cell)) in order.iter().enumerate() {
         let indices = &cells[cell];
         max_points_per_tile = max_points_per_tile.max(indices.len());
 
@@ -131,7 +169,12 @@ pub fn build_from_points(
         let cube_max = [cube_min[0] + edge, cube_min[1] + edge, cube_min[2] + edge];
 
         write_tile(&mut records, &mut payloads, points, indices, center, cube_min, cube_max)?;
+        progress.stage(Stage::Tiles, index as u64 + 1, tile_total);
+        check_cancel(progress)?;
     }
+
+    progress.stage(Stage::Write, 0, 1);
+    check_cancel(progress)?;
 
     let mut block3 = Vec::with_capacity(8 + records.len());
     block3.extend_from_slice(&(order.len() as u64).to_le_bytes());
@@ -153,6 +196,7 @@ pub fn build_from_points(
         (0, properties::build_default_properties_block()),
     ];
     let blob = writer::build_file(&header, &blocks, Some(&guid))?;
+    progress.stage(Stage::Write, 1, 1);
 
     let stats = Stats {
         points: bounds.count,
@@ -169,6 +213,15 @@ pub fn build_from_points(
         size: blob.len(),
     };
     Ok((blob, stats))
+}
+
+/// Прервать сборку, если пришла отмена.
+fn check_cancel(progress: &dyn Progress) -> Result<()> {
+    if progress.cancelled() {
+        Err(Error::Cancelled)
+    } else {
+        Ok(())
+    }
 }
 
 

@@ -22,6 +22,8 @@ pub enum Error {
     PointOutOfCube { axis: usize, value: f64 },
     /// Ошибка чтения источника (формат входа).
     Source(String),
+    /// Пользователь отменил операцию (проверка [`crate::progress::Progress`]).
+    Cancelled,
 }
 
 impl fmt::Display for Error {
@@ -44,6 +46,7 @@ impl fmt::Display for Error {
                 "координата по оси {axis} ({value}) не помещается в u16"
             ),
             Error::Source(text) => write!(f, "{text}"),
+            Error::Cancelled => write!(f, "отменено пользователем"),
         }
     }
 }

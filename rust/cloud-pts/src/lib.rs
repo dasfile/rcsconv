@@ -12,7 +12,11 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 
+use rcs_cloud::progress::{NoProgress, Progress, Stage};
 use rcs_cloud::{Bounds, CloudPoint, Error, Result, Source};
+
+/// Сколько строк разбирать между отчётами о прогрессе.
+const REPORT_LINES: usize = 1 << 16;
 
 /// Источник точек `.pts`.
 pub struct PtsSource {
@@ -26,20 +30,36 @@ impl PtsSource {
         PtsSource { path: path.into(), cache: RefCell::new(None) }
     }
 
-    /// Прочитать файл один раз.
-    fn ensure_loaded(&self) -> Result<()> {
+    /// Прочитать файл один раз (с отчётом о прогрессе по байтам).
+    fn ensure_loaded(&self, progress: &dyn Progress) -> Result<()> {
         if self.cache.borrow().is_some() {
             return Ok(());
         }
         let text = std::fs::read_to_string(&self.path)?;
+        let total = text.len() as u64;
         let mut points = Vec::new();
-        for line in text.lines() {
+        let mut offset = 0u64;
+        progress.stage(Stage::Read, 0, total);
+        for (index, line) in text.lines().enumerate() {
+            offset += line.len() as u64 + 1;
             if let Some(point) = parse_line(line) {
                 points.push(point);
             }
+            if index % REPORT_LINES == REPORT_LINES - 1 {
+                progress.stage(Stage::Read, offset.min(total), total);
+                if progress.cancelled() {
+                    return Err(Error::Cancelled);
+                }
+            }
         }
+        progress.stage(Stage::Read, total, total);
         *self.cache.borrow_mut() = Some(points);
         Ok(())
+    }
+
+    /// Забрать прочитанные точки из кеша.
+    fn take(&self) -> Vec<CloudPoint> {
+        self.cache.borrow_mut().take().unwrap_or_default()
     }
 }
 
@@ -81,7 +101,11 @@ fn clamp8(value: i64) -> u8 {
 
 impl Source for PtsSource {
     fn bounds(&self) -> Result<Bounds> {
-        self.ensure_loaded()?;
+        self.bounds_with(&NoProgress)
+    }
+
+    fn bounds_with(&self, progress: &dyn Progress) -> Result<Bounds> {
+        self.ensure_loaded(progress)?;
         let cache = self.cache.borrow();
         let points = cache.as_ref().expect("файл прочитан");
         if points.is_empty() {
@@ -102,9 +126,12 @@ impl Source for PtsSource {
     }
 
     fn points(&mut self) -> Result<Vec<CloudPoint>> {
-        self.ensure_loaded()?;
-        let mut cache = self.cache.borrow_mut();
-        Ok(cache.as_mut().expect("файл прочитан").drain(..).collect())
+        self.points_with(&NoProgress)
+    }
+
+    fn points_with(&mut self, progress: &dyn Progress) -> Result<Vec<CloudPoint>> {
+        self.ensure_loaded(progress)?;
+        Ok(self.take())
     }
 
     fn describe(&self) -> String {

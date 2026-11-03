@@ -2,6 +2,7 @@
 
 use crate::error::Result;
 use crate::point::CloudPoint;
+use crate::progress::Progress;
 
 /// bbox и число точек источника.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,8 +45,26 @@ pub trait Source {
     /// bbox и число точек.
     fn bounds(&self) -> Result<Bounds>;
 
+    /// То же, что [`Source::bounds`], но с отчётом о прогрессе чтения.
+    ///
+    /// Источники, которым для bbox нужно прочитать весь файл, переопределяют
+    /// метод; по умолчанию прогресс не отчитывается.
+    fn bounds_with(&self, progress: &dyn Progress) -> Result<Bounds> {
+        let _ = progress;
+        self.bounds()
+    }
+
     /// Все точки в порядке файла (забирает вектор из источника).
     fn points(&mut self) -> Result<Vec<CloudPoint>>;
+
+    /// То же, что [`Source::points`], но с отчётом о прогрессе.
+    ///
+    /// По умолчанию прогресс не отчитывается — важно для паритетных тестов:
+    /// вмешательство в порядок и содержимое точек недопустимо.
+    fn points_with(&mut self, progress: &dyn Progress) -> Result<Vec<CloudPoint>> {
+        let _ = progress;
+        self.points()
+    }
 
     /// Что за источник (для отчёта в CLI).
     fn describe(&self) -> String;

@@ -222,6 +222,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcs-conv"
+version = "0.1.0"
+dependencies = [
+ "cloud-las",
+ "cloud-pts",
+ "rcs-cloud",
+]
+
+[[package]]
 name = "rcs-format"
 version = "0.1.0"
 
@@ -229,9 +238,7 @@ version = "0.1.0"
 name = "rcsconv"
 version = "0.1.0"
 dependencies = [
- "cloud-las",
- "cloud-pts",
- "rcs-cloud",
+ "rcs-conv",
  "rcs-format",
 ]
 

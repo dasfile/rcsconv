@@ -1,5 +1,5 @@
 ﻿[workspace]
-members = ["cloud-las", "cloud-pts", "rcs-cloud", "rcs-format", "rcsconv"]
+members = ["cloud-las", "cloud-pts", "rcs-cloud", "rcs-conv", "rcs-format", "rcsconv"]
 resolver = "2"
 
 # Release-РїСЂРѕС„РёР»СЊ РїРѕРґ С‚СЂРµР±РѕРІР°РЅРёРµ В«РѕРґРёРЅ СЃС‚Р°С‚РёС‡РµСЃРєРёР№ .exeВ» (docs/ROADMAP.md В§1, В§3).
