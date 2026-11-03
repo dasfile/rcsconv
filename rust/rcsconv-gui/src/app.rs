@@ -13,6 +13,7 @@ use windows_sys::Win32::UI::Controls::{LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLE
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::model::{self, Id, Queue};
+use crate::params::{RecenterChoice, Settings};
 use crate::win32;
 
 /// `COLOR_WINDOW` (5) + 1: так Win32 просит системную кисть фона окна.
@@ -88,6 +89,7 @@ pub fn run() -> u8 {
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
     }
+    apply_settings(hwnd, &load_settings());
     refresh(hwnd);
 
     win32::show(hwnd);
@@ -216,6 +218,7 @@ unsafe extern "system" fn wndproc(
             0
         }
         WM_CLOSE => {
+            save_settings(hwnd);
             win32::destroy(hwnd);
             0
         }
@@ -252,6 +255,59 @@ fn create_controls(hwnd: HWND) {
     );
     win32::list_init(list, win32::dpi_of(hwnd));
 
+    // Параметры конвертации: подписи, поля, список, флажки.
+    for (id, text) in [
+        (Id::LabelOutDir, "Папка вывода"),
+        (Id::LabelUnits, "Масштаб"),
+        (Id::LabelRecenter, "Центрирование"),
+        (Id::LabelMaxTile, "Точек в узле"),
+        (Id::LabelGuid, "GUID"),
+    ] {
+        win32::create_child(hwnd, "STATIC", text, WS_CHILD | WS_VISIBLE, id.raw());
+    }
+    for id in [Id::OutDir, Id::Units, Id::MaxTile, Id::Guid] {
+        win32::create_child_ex(
+            hwnd,
+            WS_EX_CLIENTEDGE,
+            "EDIT",
+            "",
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            id.raw(),
+        );
+    }
+    let combo = win32::create_child_ex(
+        hwnd,
+        0,
+        "COMBOBOX",
+        "",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST as u32,
+        Id::Recenter.raw(),
+    );
+    let labels: Vec<&str> = RecenterChoice::ALL.iter().map(|choice| choice.label()).collect();
+    win32::combo_fill(combo, &labels, 0);
+
+    for (id, text) in [
+        (Id::ColorCheck, "Цвет"),
+        (Id::IntensityCheck, "Интенсивность"),
+        (Id::ForceCheck, "Перезаписывать .rcs"),
+        (Id::RecursiveCheck, "С подкаталогами"),
+    ] {
+        win32::create_child(
+            hwnd,
+            "BUTTON",
+            text,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+            id.raw(),
+        );
+    }
+    win32::create_child(
+        hwnd,
+        "BUTTON",
+        "Обзор…",
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
+        Id::BrowseOut.raw(),
+    );
+
     for (id, text) in [
         (Id::AddFiles, "Добавить файлы…"),
         (Id::AddFolder, "Добавить папку…"),
@@ -278,6 +334,21 @@ fn layout_controls(hwnd: HWND) {
         (Id::Title, layout.title),
         (Id::Hint, layout.hint),
         (Id::List, layout.list),
+        (Id::LabelOutDir, layout.label_out_dir),
+        (Id::OutDir, layout.out_dir),
+        (Id::BrowseOut, layout.browse_out),
+        (Id::LabelUnits, layout.label_units),
+        (Id::Units, layout.units),
+        (Id::LabelRecenter, layout.label_recenter),
+        (Id::Recenter, layout.recenter),
+        (Id::LabelMaxTile, layout.label_max_tile),
+        (Id::MaxTile, layout.max_tile),
+        (Id::LabelGuid, layout.label_guid),
+        (Id::Guid, layout.guid),
+        (Id::ColorCheck, layout.color),
+        (Id::IntensityCheck, layout.intensity),
+        (Id::ForceCheck, layout.force),
+        (Id::RecursiveCheck, layout.recursive),
         (Id::AddFiles, layout.add_files),
         (Id::AddFolder, layout.add_folder),
         (Id::Remove, layout.remove),
@@ -288,7 +359,7 @@ fn layout_controls(hwnd: HWND) {
     }
 }
 
-/// Обработать нажатие кнопки.
+/// Обработать нажатие кнопки или изменение параметра.
 fn handle_command(hwnd: HWND, id: usize) {
     if id == Id::AddFiles.raw() {
         add_files(hwnd);
@@ -299,9 +370,42 @@ fn handle_command(hwnd: HWND, id: usize) {
     } else if id == Id::Clear.raw() {
         with_state(hwnd, |state| state.queue.clear());
         refresh(hwnd);
+    } else if id == Id::BrowseOut.raw() {
+        browse_output(hwnd);
     } else if id == Id::Close.raw() {
+        save_settings(hwnd);
         win32::destroy(hwnd);
+    } else if is_parameter(id) {
+        // Изменился параметр: пересчитываем подсказку (в ней же — ошибки ввода).
+        refresh(hwnd);
     }
+}
+
+/// Относится ли `id` к полям параметров.
+fn is_parameter(id: usize) -> bool {
+    [
+        Id::OutDir,
+        Id::Units,
+        Id::Recenter,
+        Id::MaxTile,
+        Id::Guid,
+        Id::ColorCheck,
+        Id::IntensityCheck,
+        Id::ForceCheck,
+        Id::RecursiveCheck,
+    ]
+    .iter()
+    .any(|candidate| candidate.raw() == id)
+}
+
+/// «Обзор…» — выбрать папку вывода.
+fn browse_output(hwnd: HWND) {
+    let Some(folder) = win32::browse_folder(hwnd, "Папка для результатов") else {
+        return;
+    };
+    let edit = win32::child(hwnd, Id::OutDir.raw());
+    win32::set_text(edit, &folder.display().to_string());
+    refresh(hwnd);
 }
 
 /// «Добавить файлы…» — диалог с мультивыбором.
@@ -381,7 +485,79 @@ fn refresh(hwnd: HWND) {
         win32::list_add_row(list, index, &cells);
     }
     let hint = win32::child(hwnd, Id::Hint.raw());
-    win32::set_text(hint, &model::queue_hint(&state.queue));
+    win32::set_text(hint, &hint_text(hwnd, &state.queue));
+}
+
+/// Имена настроек в реестре.
+const SETTINGS_NAMES: &[&str] = &[
+    "out_dir",
+    "units",
+    "recenter",
+    "max_per_tile",
+    "guid",
+    "color",
+    "intensity",
+    "force",
+    "recursive",
+];
+
+/// Прочитать параметры из полей окна.
+fn read_settings(hwnd: HWND) -> Settings {
+    let text = |id: Id| win32::text_of(win32::child(hwnd, id.raw()));
+    let check = |id: Id| win32::check_get(win32::child(hwnd, id.raw()));
+    let recenter = win32::combo_selected(win32::child(hwnd, Id::Recenter.raw()))
+        .and_then(|index| RecenterChoice::ALL.get(index).copied())
+        .unwrap_or(RecenterChoice::None);
+    Settings {
+        out_dir: text(Id::OutDir),
+        units: text(Id::Units),
+        recenter,
+        max_per_tile: text(Id::MaxTile),
+        guid: text(Id::Guid),
+        color: check(Id::ColorCheck),
+        intensity: check(Id::IntensityCheck),
+        force: check(Id::ForceCheck),
+        recursive: check(Id::RecursiveCheck),
+    }
+}
+
+/// Показать параметры в полях окна.
+fn apply_settings(hwnd: HWND, settings: &Settings) {
+    win32::set_text(win32::child(hwnd, Id::OutDir.raw()), &settings.out_dir);
+    win32::set_text(win32::child(hwnd, Id::Units.raw()), &settings.units);
+    win32::set_text(win32::child(hwnd, Id::MaxTile.raw()), &settings.max_per_tile);
+    win32::set_text(win32::child(hwnd, Id::Guid.raw()), &settings.guid);
+
+    let recenter = RecenterChoice::ALL
+        .iter()
+        .position(|choice| *choice == settings.recenter)
+        .unwrap_or(0);
+    win32::combo_select(win32::child(hwnd, Id::Recenter.raw()), recenter);
+
+    win32::check_set(win32::child(hwnd, Id::ColorCheck.raw()), settings.color);
+    win32::check_set(win32::child(hwnd, Id::IntensityCheck.raw()), settings.intensity);
+    win32::check_set(win32::child(hwnd, Id::ForceCheck.raw()), settings.force);
+    win32::check_set(win32::child(hwnd, Id::RecursiveCheck.raw()), settings.recursive);
+}
+
+/// Прочитать настройки из `HKCU\Software\rcsconv\gui`.
+fn load_settings() -> Settings {
+    let values = win32::registry_load(SETTINGS_NAMES);
+    Settings::from_pairs(values.iter().map(|(name, value)| (name.as_str(), value.as_str())))
+}
+
+/// Сохранить настройки в `HKCU\Software\rcsconv\gui`.
+fn save_settings(hwnd: HWND) {
+    let settings = read_settings(hwnd);
+    win32::registry_save(&settings.to_pairs());
+}
+
+/// Подсказка: ошибки параметров важнее состояния очереди.
+fn hint_text(hwnd: HWND, queue: &Queue) -> String {
+    match read_settings(hwnd).validate() {
+        Ok(()) => model::queue_hint(queue),
+        Err(message) => format!("Ошибка параметров: {message}"),
+    }
 }
 
 /// Показать ошибку в модальном окне (используется до появления главного окна).

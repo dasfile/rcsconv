@@ -19,3 +19,6 @@ pub use options::{ArgsError, Options};
 /// Прогресс и отмена — реэкспорт из `rcs-cloud`, чтобы GUI зависел от одного крейта.
 pub use rcs_cloud::progress::{NoProgress, Progress, Stage};
 pub use rcs_cloud::{BuildOptions, Stats};
+
+/// Настройки входа LAS/LAZ — GUI строит их из полей окна (как CLI из ключей).
+pub use cloud_las::{LasOptions, Recenter, ScaleMode};

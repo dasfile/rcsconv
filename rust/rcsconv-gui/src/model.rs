@@ -28,6 +28,36 @@ pub enum Id {
     Clear = 106,
     /// Кнопка «Закрыть».
     Close = 107,
+    /// Поле «Папка вывода».
+    OutDir = 108,
+    /// Кнопка «Обзор…» для папки вывода.
+    BrowseOut = 109,
+    /// Поле «Масштаб».
+    Units = 110,
+    /// Список «Центрирование».
+    Recenter = 111,
+    /// Поле «Точек в узле».
+    MaxTile = 112,
+    /// Поле «GUID».
+    Guid = 113,
+    /// Флажок «Цвет».
+    ColorCheck = 114,
+    /// Флажок «Интенсивность».
+    IntensityCheck = 115,
+    /// Флажок «Перезаписывать».
+    ForceCheck = 116,
+    /// Флажок «С подкаталогами».
+    RecursiveCheck = 117,
+    /// Подпись «Папка вывода».
+    LabelOutDir = 120,
+    /// Подпись «Масштаб».
+    LabelUnits = 121,
+    /// Подпись «Центрирование».
+    LabelRecenter = 122,
+    /// Подпись «Точек в узле».
+    LabelMaxTile = 123,
+    /// Подпись «GUID».
+    LabelGuid = 124,
 }
 
 impl Id {
@@ -59,6 +89,36 @@ pub struct Layout {
     pub hint: Rect,
     /// Список файлов.
     pub list: Rect,
+    /// Подпись «Папка вывода».
+    pub label_out_dir: Rect,
+    /// Поле папки вывода.
+    pub out_dir: Rect,
+    /// Кнопка «Обзор…».
+    pub browse_out: Rect,
+    /// Подпись «Масштаб».
+    pub label_units: Rect,
+    /// Поле масштаба.
+    pub units: Rect,
+    /// Подпись «Центрирование».
+    pub label_recenter: Rect,
+    /// Список центрирования.
+    pub recenter: Rect,
+    /// Подпись «Точек в узле».
+    pub label_max_tile: Rect,
+    /// Поле предела точек в узле.
+    pub max_tile: Rect,
+    /// Подпись «GUID».
+    pub label_guid: Rect,
+    /// Поле GUID.
+    pub guid: Rect,
+    /// Флажок «Цвет».
+    pub color: Rect,
+    /// Флажок «Интенсивность».
+    pub intensity: Rect,
+    /// Флажок «Перезаписывать».
+    pub force: Rect,
+    /// Флажок «С подкаталогами».
+    pub recursive: Rect,
     /// «Добавить файлы…».
     pub add_files: Rect,
     /// «Добавить папку…».
@@ -96,7 +156,7 @@ pub fn scale(px: i32, dpi: u32) -> i32 {
 }
 
 /// Минимальный размер клиентской области при 96 dpi (ширина, высота).
-pub const MIN_SIZE_96: (i32, i32) = (560, 260);
+pub const MIN_SIZE_96: (i32, i32) = (660, 480);
 
 /// Раскладка окна: заголовок, подсказка, ряд кнопок, список.
 ///
@@ -114,7 +174,71 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
     let title = Rect { x: margin, y: margin, w: width - margin * 2, h: line };
     let hint = Rect { x: margin, y: margin + line, w: width - margin * 2, h: line };
 
-    let buttons_y = hint.y + hint.h + gap / 2;
+    let buttons_y = height - margin - button_h;
+    let params_gap = scale(8, dpi);
+    let row = scale(26, dpi);
+    let row_gap = scale(6, dpi);
+    let label_w = scale(112, dpi);
+    let field_x = margin + label_w + gap / 2;
+    let field_w = (width - margin - field_x).max(scale(80, dpi));
+
+    // Четыре строки параметров снизу вверх: поля GUID, точек, центрирования, флажки.
+    let checks_y = buttons_y - params_gap - row;
+    let row3_y = checks_y - row_gap - row;
+    let row2_y = row3_y - row_gap - row;
+    let row1_y = row2_y - row_gap - row;
+
+    let browse_w = scale(90, dpi);
+    let label_out_dir = Rect { x: margin, y: row1_y, w: label_w, h: row };
+    let out_dir = Rect {
+        x: field_x,
+        y: row1_y,
+        w: field_w - browse_w - gap,
+        h: row,
+    };
+    let browse_out = Rect { x: width - margin - browse_w, y: row1_y, w: browse_w, h: row };
+
+    let label_units = Rect { x: margin, y: row2_y, w: label_w, h: row };
+    let units = Rect { x: field_x, y: row2_y, w: scale(70, dpi), h: row };
+    let recenter_label_x = units.x + units.w + gap * 2;
+    let label_recenter = Rect { x: recenter_label_x, y: row2_y, w: scale(100, dpi), h: row };
+    let recenter = Rect {
+        x: recenter_label_x + scale(100, dpi),
+        y: row2_y,
+        // Высота combo — это высота раскрытого списка; она намеренно выходит
+        // за строку (стандартное поведение Win32), поэтому в проверках границ
+        // прямоугольник не участвует.
+        w: scale(140, dpi),
+        h: scale(160, dpi),
+    };
+
+    let label_max_tile = Rect { x: margin, y: row3_y, w: label_w, h: row };
+    let max_tile = Rect { x: field_x, y: row3_y, w: scale(70, dpi), h: row };
+    let guid_label_x = max_tile.x + max_tile.w + gap * 2;
+    let label_guid = Rect { x: guid_label_x, y: row3_y, w: scale(50, dpi), h: row };
+    let guid = Rect {
+        x: guid_label_x + scale(50, dpi),
+        y: row3_y,
+        w: (width - margin - (guid_label_x + scale(50, dpi))).max(scale(80, dpi)),
+        h: row,
+    };
+
+    let color = Rect { x: margin, y: checks_y, w: scale(90, dpi), h: row };
+    let intensity =
+        Rect { x: color.x + color.w + gap, y: checks_y, w: scale(150, dpi), h: row };
+    let force = Rect {
+        x: intensity.x + intensity.w + gap,
+        y: checks_y,
+        w: scale(200, dpi),
+        h: row,
+    };
+    let recursive = Rect {
+        x: force.x + force.w + gap,
+        y: checks_y,
+        w: (width - margin - (force.x + force.w + gap)).max(scale(140, dpi)),
+        h: row,
+    };
+
     let add_files = Rect { x: margin, y: buttons_y, w: scale(150, dpi), h: button_h };
     let add_folder = Rect {
         x: add_files.x + add_files.w + gap,
@@ -141,15 +265,39 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
         h: button_h,
     };
 
-    let list_top = buttons_y + button_h + gap;
+    let list_top = hint.y + hint.h + gap / 2;
     let list = Rect {
         x: margin,
         y: list_top,
         w: width - margin * 2,
-        h: (height - margin - list_top).max(scale(80, dpi)),
+        h: (row1_y - params_gap - list_top).max(scale(80, dpi)),
     };
 
-    Layout { title, hint, list, add_files, add_folder, remove, clear, close }
+    Layout {
+        title,
+        hint,
+        list,
+        label_out_dir,
+        out_dir,
+        browse_out,
+        label_units,
+        units,
+        label_recenter,
+        recenter,
+        label_max_tile,
+        max_tile,
+        label_guid,
+        guid,
+        color,
+        intensity,
+        force,
+        recursive,
+        add_files,
+        add_folder,
+        remove,
+        clear,
+        close,
+    }
 }
 
 /// Состояние файла в очереди.
@@ -375,7 +523,7 @@ mod tests {
 
     #[test]
     fn layout_stays_inside_client_area() {
-        for (width, height, dpi) in [(900, 600, 96), (1400, 900, 144), (1200, 800, 192)] {
+        for (width, height, dpi) in [(900, 600, 96), (1400, 900, 144), (1320, 960, 192)] {
             let effective_width = width.max(scale(MIN_SIZE_96.0, dpi));
             let effective_height = height.max(scale(MIN_SIZE_96.1, dpi));
             let layout = layout(width, height, dpi);
@@ -383,6 +531,20 @@ mod tests {
                 layout.title,
                 layout.hint,
                 layout.list,
+                layout.label_out_dir,
+                layout.out_dir,
+                layout.browse_out,
+                layout.label_units,
+                layout.units,
+                layout.label_recenter,
+                layout.label_max_tile,
+                layout.max_tile,
+                layout.label_guid,
+                layout.guid,
+                layout.color,
+                layout.intensity,
+                layout.force,
+                layout.recursive,
                 layout.add_files,
                 layout.add_folder,
                 layout.remove,
@@ -394,8 +556,12 @@ mod tests {
                 assert!(rect.y + rect.h <= effective_height, "{rect:?} при высоте {height}");
             }
             assert!(layout.list.y > layout.hint.y, "список ниже подсказки");
+            assert!(layout.list.h > 0, "список не вырожден");
+            assert!(layout.out_dir.y > layout.list.y, "параметры ниже списка");
+            assert!(layout.add_files.y > layout.recursive.y, "кнопки ниже параметров");
             assert!(layout.close.x + layout.close.w <= effective_width, "«Закрыть» внутри окна");
             assert!(layout.clear.x + layout.clear.w <= effective_width, "«Очистить» внутри окна");
+            assert!(layout.recenter.x + layout.recenter.w <= effective_width, "combo внутри окна");
         }
     }
 

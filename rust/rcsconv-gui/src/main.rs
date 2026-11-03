@@ -15,6 +15,7 @@
 #[cfg(windows)]
 mod app;
 mod model;
+mod params;
 #[cfg(windows)]
 mod win32;
 

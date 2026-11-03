@@ -8,9 +8,13 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::ptr;
 
-use windows_sys::Win32::Foundation::{HINSTANCE, HWND, RECT};
+use windows_sys::Win32::Foundation::{HINSTANCE, HWND, RECT, ERROR_SUCCESS};
 use windows_sys::Win32::System::Com::CoTaskMemFree;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Registry::{
+    RegCloseKey, RegCreateKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
+    KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ,
+};
 use windows_sys::Win32::UI::Controls::Dialogs::{
     GetOpenFileNameW, OPENFILENAMEW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST,
     OFN_HIDEREADONLY, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST,
@@ -30,9 +34,11 @@ use windows_sys::Win32::UI::Shell::{
     BIF_EDITBOX, BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, GetClientRect, GetDlgItem, MoveWindow, SendMessageW,
-    SetWindowTextW, ShowWindow, SW_SHOW,
+    CreateWindowExW, DestroyWindow, GetClientRect, GetDlgItem, GetWindowTextLengthW, GetWindowTextW,
+    MoveWindow, SendMessageW, SetWindowTextW, ShowWindow, BM_GETCHECK, BM_SETCHECK, CB_ADDSTRING,
+    CB_GETCURSEL, CB_SETCURSEL, SW_SHOW,
 };
+use windows_sys::Win32::UI::Controls::BST_CHECKED;
 
 use crate::model::{Rect, COLUMNS};
 
@@ -365,4 +371,187 @@ pub fn list_selected(list: HWND) -> Option<usize> {
     } else {
         Some(index as usize)
     }
+}
+
+/// Текст контрола (`Edit`, `Static`, `ComboBox`).
+pub fn text_of(hwnd: HWND) -> String {
+    if hwnd.is_null() {
+        return String::new();
+    }
+    // SAFETY: hwnd — живой контрол.
+    let length = unsafe { GetWindowTextLengthW(hwnd) };
+    if length <= 0 {
+        return String::new();
+    }
+    let mut buffer = vec![0u16; length as usize + 1];
+    // SAFETY: буфер достаточного размера (length + NUL).
+    let written = unsafe { GetWindowTextW(hwnd, buffer.as_mut_ptr(), buffer.len() as i32) };
+    if written <= 0 {
+        return String::new();
+    }
+    String::from_utf16_lossy(&buffer[..written as usize])
+}
+
+/// Заполнить выпадающий список и выбрать элемент.
+pub fn combo_fill(combo: HWND, items: &[&str], selected: usize) {
+    if combo.is_null() {
+        return;
+    }
+    for item in items {
+        let text = wide(item);
+        // SAFETY: Win32 копирует строку во время вызова.
+        unsafe {
+            SendMessageW(combo, CB_ADDSTRING, 0, text.as_ptr() as isize);
+        }
+    }
+    combo_select(combo, selected.min(items.len().saturating_sub(1)));
+}
+
+/// Выбрать элемент выпадающего списка.
+pub fn combo_select(combo: HWND, index: usize) {
+    if combo.is_null() {
+        return;
+    }
+    // SAFETY: индекс не выходит за границы добавленных строк (проверяет вызывающий).
+    unsafe {
+        SendMessageW(combo, CB_SETCURSEL, index, 0);
+    }
+}
+
+/// Выбранный элемент списка.
+pub fn combo_selected(combo: HWND) -> Option<usize> {
+    if combo.is_null() {
+        return None;
+    }
+    // SAFETY: CB_GETCURSEL возвращает -1, если ничего не выбрано.
+    let index = unsafe { SendMessageW(combo, CB_GETCURSEL, 0, 0) };
+    if index < 0 {
+        None
+    } else {
+        Some(index as usize)
+    }
+}
+
+/// Поставить/снять флажок.
+pub fn check_set(control: HWND, checked: bool) {
+    if control.is_null() {
+        return;
+    }
+    let state = if checked { BST_CHECKED as usize } else { 0 };
+    // SAFETY: control — флажок (BS_AUTOCHECKBOX), состояние — обычное число.
+    unsafe {
+        SendMessageW(control, BM_SETCHECK, state, 0);
+    }
+}
+
+/// Стоит ли флажок.
+pub fn check_get(control: HWND) -> bool {
+    if control.is_null() {
+        return false;
+    }
+    // SAFETY: control — флажок; BM_GETCHECK не пишет в память.
+    let state = unsafe { SendMessageW(control, BM_GETCHECK, 0, 0) };
+    state == BST_CHECKED as isize
+}
+
+/// Ключ реестра с настройками окна.
+const SETTINGS_KEY: &str = "Software\\rcsconv\\gui";
+
+/// Открыть (создать) ключ настроек в `HKCU`.
+fn open_settings() -> Option<HKEY> {
+    let subkey = wide(SETTINGS_KEY);
+    let mut key: HKEY = ptr::null_mut();
+    // SAFETY: subkey живёт до конца вызова; security attributes не нужны (NULL).
+    let status = unsafe {
+        RegCreateKeyExW(
+            HKEY_CURRENT_USER,
+            subkey.as_ptr(),
+            0,
+            ptr::null(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_READ | KEY_WRITE,
+            ptr::null(),
+            &mut key,
+            ptr::null_mut(),
+        )
+    };
+    if status == ERROR_SUCCESS {
+        Some(key)
+    } else {
+        None
+    }
+}
+
+/// Сохранить настройки в `HKCU\Software\rcsconv\gui` (ошибки молча игнорируются).
+pub fn registry_save(values: &[(String, String)]) {
+    let Some(key) = open_settings() else {
+        return;
+    };
+    for (name, value) in values {
+        let name_w = wide(name);
+        let data: Vec<u16> = value.encode_utf16().chain(std::iter::once(0)).collect();
+        let bytes = std::mem::size_of_val(data.as_slice()) as u32;
+        // SAFETY: имя и данные живут до конца вызова; тип — REG_SZ, размер в байтах.
+        unsafe {
+            RegSetValueExW(key, name_w.as_ptr(), 0, REG_SZ, data.as_ptr() as *const u8, bytes);
+        }
+    }
+    // SAFETY: ключ получен из RegCreateKeyExW и освобождается один раз.
+    unsafe {
+        RegCloseKey(key);
+    }
+}
+
+/// Прочитать строковые значения из `HKCU\Software\rcsconv\gui`.
+pub fn registry_load(names: &[&str]) -> Vec<(String, String)> {
+    let Some(key) = open_settings() else {
+        return Vec::new();
+    };
+    let mut values = Vec::new();
+    for name in names {
+        let name_w = wide(name);
+        let mut kind: u32 = 0;
+        let mut size: u32 = 0;
+        // SAFETY: первый вызов — только размер данных.
+        let status = unsafe {
+            RegQueryValueExW(
+                key,
+                name_w.as_ptr(),
+                ptr::null(),
+                &mut kind,
+                ptr::null_mut(),
+                &mut size,
+            )
+        };
+        if status != ERROR_SUCCESS || size == 0 || size > 64 * 1024 {
+            continue;
+        }
+        let mut buffer = vec![0u16; size as usize / 2 + 2];
+        let mut read = std::mem::size_of_val(buffer.as_slice()) as u32;
+        // SAFETY: буфер достаточного размера, размер передан в байтах.
+        let status = unsafe {
+            RegQueryValueExW(
+                key,
+                name_w.as_ptr(),
+                ptr::null(),
+                &mut kind,
+                buffer.as_mut_ptr() as *mut u8,
+                &mut read,
+            )
+        };
+        if status != ERROR_SUCCESS {
+            continue;
+        }
+        let length = (read as usize / 2).min(buffer.len());
+        let mut text = String::from_utf16_lossy(&buffer[..length]);
+        if let Some(position) = text.find('\0') {
+            text.truncate(position);
+        }
+        values.push((name.to_string(), text));
+    }
+    // SAFETY: ключ освобождается один раз.
+    unsafe {
+        RegCloseKey(key);
+    }
+    values
 }
