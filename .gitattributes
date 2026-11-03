@@ -1,0 +1,14 @@
+# Переносы строк и бинарные файлы.
+# Данные (golden/) в git не входят — правила ниже на случай локальных копий.
+
+* text=auto
+
+*.rcs binary
+*.rcp binary
+*.las binary
+*.laz binary
+*.e57 binary
+*.bmp binary
+*.png binary
+
+*.pts text

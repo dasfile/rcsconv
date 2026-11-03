@@ -13,7 +13,7 @@
 ReCap теряет точки (у `attic_south_ost`: 1 086 140 → 1 085 855 → 1 002 250).
 
 Примеры:
-    python tools/corpus_status.py "D:\\work\\training\\python\\rcs\\output_tests\\corupus2"
+    python tools/corpus_status.py "D:\\scan" -g "D:\\scan"
     python tools/corpus_status.py probes/corpus -g golden/corpus
 """
 

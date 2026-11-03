@@ -1,109 +1,112 @@
-# RCS reverse engineering (ADOCT / Autodesk ReCap)
+# rcsconv — обратимый конвертер Autodesk ReCap `.rcs`
 
-Рабочее место для реверса контейнера `.rcs` (Autodesk ReCap) с целью получить
-обратимый читатель и писатель, проверяемый самим Revit.
+Читатель и **писатель** проприетарного контейнера `.rcs` (сигнатура `ADOCT`,
+эталонная версия ReCap 2020 / 6.0.0.110). Собирает `.rcs` **без ReCap и без
+шаблона** — из `.pts`, `.las` или `.laz` — и файл открывается в Revit.
 
-- План, фазы и журнал: **[PLAN.md](PLAN.md)**
-- **Спецификация `.rcs`**: **[docs/RCS-FORMAT.md](docs/RCS-FORMAT.md)**
-- **Формат `.rcp`** (проект ReCap): **[docs/RCP-FORMAT.md](docs/RCP-FORMAT.md)**
-- Корпус сканов и эталоны: **[docs/CORPUS.md](docs/CORPUS.md)**, **[golden/README.md](golden/README.md)**
-- Передача в новый диалог: **[docs/HANDOVER.md](docs/HANDOVER.md)**
-- Почему подход 2025 года не работал: **[docs/LEGACY-WRONG.md](docs/LEGACY-WRONG.md)**
-- Правила работы: **[.clinerules](.clinerules)**
+Проект вырос из реверса: спецификация формата (`docs/RCS-FORMAT.md`) и формат
+проекта `.rcp` (`docs/RCP-FORMAT.md`) — такая же ценность, как код.
 
-## Структура
+## Что умеет
 
-```
-tools/               парсер, писатель, конвертеры, CLI (основной код)
-  cloud.py             точка и «источник точек» (общий протокол)
-  pts_read.py          чтение .pts        → pts2rcs.py
-  las_read.py          чтение .las/.laz   → las2rcs.py
-  rcs_build.py         октодерево и сборка .rcs (о формате входа не знает)
-  rcs_cli.py           общие аргументы и цикл по файлам
-tools/tests/         85 тестов (unittest)
-docs/                спецификации (.rcs, .rcp), корпус, handover
-golden/              ВСЕ данные: .laz/.pts, проекты .rcp, эталоны .rcs (в git НЕ попадает)
-  golden/lazimport/    вторая ветка: импорт напрямую из .laz
-  golden/reference/    *_orig.rcs — побайтовое доказательство писателя
-out/                 результаты генерации (в git НЕ попадает)
-dumps/               эксперименты и дампы (в git НЕ попадает)
-```
+| Вход | Выход | Команда |
+|---|---|---|
+| `.pts` (текст Leica, 3–7 колонок) | `.rcs` (Unified RCS, v5) | `tools/pts2rcs.py` |
+| `.las` / `.laz` | `.rcs` | `tools/las2rcs.py` |
+| `.rcs` | `.pts` | `tools/rcs2pts.py` |
+| `.rcs` | проверка инвариантов, bbox, `type 1` | `tools/rcs_inspect.py`, `tools/validate_pts.py` |
+| `.rcp` (проект ReCap) | настройки импорта из XML | `tools/rcp_info.py` |
 
-`golden/`, `out/`, `dumps/` перечислены в `.gitignore`: там лежат данные Autodesk
-и наши результаты, они снимаются/создаются локально.
-
-## Данные и тесты
-
-Данные — в `golden/` (`golden/README.md`): 10 реальных облаков из iPhone, их `.laz`,
-проекты `.rcp`, экспорты Unified RCS, raw `Support/*.rcs`, три маленьких пробы
-(`probe6/test1/test2`) и `reference/*_orig.rcs`.
-
-```powershell
-python -m unittest discover -s tools/tests          # 85 тестов
-```
-
-Без `golden/` тесты, которым нужны эталоны, **скипаются** (`SkipTest`), а не падают —
-это нормальное состояние репозитория без данных.
+Дополнительно: подвыборка `.pts`, LAS/LAZ → `.pts`, сравнение двух `.rcs`,
+разбор узлов и метаданных, чек-лист корпуса.
 
 ## Быстрый старт
 
 ```powershell
-# --- .pts → .rcs, сверка, разбор (три пробы лежат в golden/) ---
+# .pts → .rcs и обратно (три маленьких пробы лежат в golden/)
 python tools/pts2rcs.py golden/probe6.pts -o out           # → out/probe6.rcs
-python tools/rcs_inspect.py out/probe6.rcs --pts golden/probe6.pts
 python tools/rcs2pts.py out/probe6.rcs -o out -c -i         # → out/probe6.pts
-python tools/validate_pts.py golden/probe6.pts out/probe6.rcs -s
 python tools/rcs_write.py out/probe6.rcs out/copy.rcs       # read → write, байт-в-байт
-python tools/analyze_type1.py out/probe6.rcs
+python tools/validate_pts.py golden/probe6.pts out/probe6.rcs -s
 
-# --- LAS/LAZ → .rcs напрямую (без текстового посредника) ---
-python tools/las2rcs.py golden/level_7.laz -o out          # → out/level_7.rcs
-python tools/las2rcs.py "golden/*.laz" -o out              # пачка
+# LAS/LAZ → .rcs, без текстового посредника
+python tools/las2rcs.py golden/level_7.laz -o out
+python tools/las2rcs.py "golden/*.laz" -o out
 python tools/las2rcs.py scan.las --units-scale 0.3048 --recenter center
-python tools/validate_pts.py golden/level_7.pts out/level_7.rcs -s
 
-# --- корпус (реальные сканы) ---
+# корпус и проекты
 python tools/corpus_status.py golden -g golden              # что снято, count, узлы
-python tools/pts2rcs.py "golden/*.pts" -o out               # пачка
-python tools/validate_pts.py "golden/*.pts" -g golden       # bbox/type 1/count
-python tools/rcs_compare.py golden/probe6.rcs out/probe6.rcs  # отличия по интервалам
-python tools/analyze_header.py golden/level_7.rcs --kinds   # kind 0…7 в payload'ах
-python tools/analyze_payload.py golden/level_7.rcs --hex
-
-# --- проекты ReCap (.rcp = ZIP + XML) ---
-python tools/rcp_info.py golden/probe6.rcp                  # настройки импорта
-python tools/rcp_info.py "golden/*.rcp" --json
-python tools/rcp_info.py golden/level_7.rcp --entries
-
-# --- импорт и подвыборка ---
-python tools/las2pts.py "golden/*.laz" -o out/pts           # LAS/LAZ → .pts (laspy)
-python tools/pts_subset.py golden/level_7.pts -n 20000 -o out/subset
+python tools/validate_pts.py "golden/*.pts" -g golden       # сводка по всем парам
+python tools/rcp_info.py "golden/*.rcp"                     # настройки импорта из XML
 ```
 
-CLI-правило: первый аргумент — вход (файл, каталог или маска), имя выхода утилита
-подставляет сама (`<имя>.rcs` / `<имя>.pts`), существующий выход не перезаписывается
-без `-f`. **Пишите результаты в `out/`**, `golden/` — read-only.
+Правило CLI: первый аргумент — вход (файл, каталог или маска), имя выхода
+подставляется само (`<имя>.rcs` / `<имя>.pts`), существующий файл не
+перезаписывается без `-f`. Результаты пишите в `out/`.
 
-Зависимости: Python 3.11 + стандартная библиотека; `laspy` (+ бэкенд `laszip` или
-`lazrs`) — только для `tools/las2pts.py`. Остальное работает без них.
+Требования: Python 3.11 + `numpy`. `laspy` (+ бэкенд `laszip` или `lazrs`) нужен
+только для LAS/LAZ: `pip install -e ".[las]"`.
 
-## Статус
+## Как проверялось
 
-- `.rcs`: читатель и писатель готовы, спецификация выпущена; приёмка — **Revit 2023**
-  на 9 реальных облаках (0.3–4.0 млн точек). Писатель собирает файл **без ReCap и без
-  шаблона**; `read → write` побайтово идентичен на 13 эталонах.
-- Входы: `.pts` (`pts2rcs`) и **`.las/.laz`** (`las2rcs`, без текстового посредника).
-  На `level_7.laz` получается то же дерево, что у ReCap: 43 узла, глубина 3,
-  блоки `type 1` и `type 0` — байт-в-байт как в `golden/level_7.rcs`.
-- `.rcp`: контейнер и XML-модель разобраны (`docs/RCP-FORMAT.md`), из проекта
-  читаются фактические настройки импорта, включая `Decimation grid`.
-- Открытые вопросы («на понимание», не блокируют работу) — `docs/RCS-FORMAT.md` §12.
+Главное в проекте — не «размер файла совпал», а проверяемость:
 
-## Происхождение и лицензии
+- **85 тестов** (`python -m unittest discover -s tools/tests`); без данных часть
+  классов скипается, а не падает;
+- `read → write` даёт **побайтово идентичный** файл на эталонах;
+- файлы, собранные `pts2rcs`, **открыты в Revit 2023** на 9 реальных облаках
+  (0.3–4.0 млн точек), габариты сверены;
+- на `level_7` блоки `type 1` (метаданные) и `type 0` (свойства) совпадают с
+  эталоном ReCap **байт-в-байт**; из `.laz` получается то же дерево (43 узла, глубина 3);
+- `export ⊂ raw` — экспорт Unified только прореживает импортированное облако
+  (проверено на 1.07 млн точек);
+- что **не** проверено — честно перечислено: линковка Revit-модели, `.e57`,
+  точный механизм прореживания при экспорте (`docs/RCS-FORMAT.md` §12).
 
-- В git попадают только **наш код** (`tools/`), **наша документация** (`docs/`,
-  `PLAN.md`, `README.md`) и правила (`.clinerules`).
-- `.rcs`/`.rcp`/`.laz`/`.pts` — данные, созданные Autodesk и камерой; они лежат
-  локально в `golden/` и в git не входят.
-- Формат `.rcs` восстановлен по поведению программы (интероперабельность);
-  SDK Autodesk не использовался.
+## Как это сделано
+
+Проект сделан в паре «человек + ИИ-агент»: постановка задач, съёмка, данные и
+приёмка в Revit — владелец проекта; код, анализ формата и тексты документации —
+агент Cline (модель DeepSeek V4.1 Flash 1017) в VS Code.
+
+Поэтому каждый факт о формате помечен **ПОДТВЕРЖДЕНО / ГИПОТЕЗА / ОПРОВЕРГНУТО**
+и опирается на тест или скрипт (`docs/RCS-FORMAT.md` §0). В разделе «ОПРОВЕРГНУТО»
+(§13) собраны в том числе ошибки раннего подхода 2025 года — чтобы их никто не
+повторил.
+
+## Что внутри
+
+```
+tools/                 парсер, писатель, конвертеры, CLI
+  cloud.py              точка и «источник точек» (общий протокол)
+  pts_read.py           .pts            → pts2rcs.py
+  las_read.py           .las/.laz       → las2rcs.py
+  rcs_build.py          октодерево и сборка .rcs (о формате входа не знает)
+  rcs_cli.py            общие аргументы и цикл по файлам
+  rcs_blocks.py         контейнер: заголовок, директория, блоки
+  rcs_points.py         тела точек (16 Б) и заголовок payload'а узла
+  rcs_write.py          сериализация: собрать файл из блоков
+  analyze_*.py          разбор `type 1`, заголовков, payload'ов
+tools/tests/           85 тестов (unittest)
+docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md, ROADMAP.md, GIT.md
+golden/                данные и эталоны (в git НЕ входят)
+out/                   результаты прогонов (в git НЕ входят)
+```
+
+Документация: **[PLAN.md](PLAN.md)** (статус, фазы, журнал) ·
+**[docs/RCS-FORMAT.md](docs/RCS-FORMAT.md)** (спецификация `.rcs`) ·
+**[docs/RCP-FORMAT.md](docs/RCP-FORMAT.md)** (формат `.rcp`) ·
+**[docs/CORPUS.md](docs/CORPUS.md)** (корпус и эталоны) ·
+**[docs/HANDOVER.md](docs/HANDOVER.md)** (точка входа) ·
+**[docs/ROADMAP.md](docs/ROADMAP.md)** · **[docs/GIT.md](docs/GIT.md)**.
+
+## Данные
+
+В репозитории **нет** файлов, созданных Autodesk, и тяжёлых облаков: эталоны
+снимаются локально в `golden/` (см. `golden/README.md` и `docs/CORPUS.md`).
+`golden/`, `out/`, `dumps/` перечислены в `.gitignore`.
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE). Проект не связан с Autodesk; ReCap, Revit и
+соответствующие торговые марки принадлежат Autodesk.

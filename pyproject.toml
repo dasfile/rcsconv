@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rcsconv"
+version = "1.0.0"
+description = "Reverse-engineered reader/writer for Autodesk ReCap .rcs (ADOCT) and .rcp"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Ivan Rodionov" }]
+keywords = [
+    "autodesk",
+    "recap",
+    "rcs",
+    "rcp",
+    "revit",
+    "point-cloud",
+    "reverse-engineering",
+]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+# Только tools/las2pts.py, tools/las2rcs.py и tools/las_read.py: LAZ без
+# внешнего декомпрессора не читается (.clinerules п.10)
+las = ["laspy[lazrs]"]
+dev = ["ruff"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.setuptools]
+# Проект — набор CLI-скриптов в tools/, а не библиотека: пакета нет,
+# из pyproject берётся только метадата (имя, лицензия, зависимости).
+packages = []
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]

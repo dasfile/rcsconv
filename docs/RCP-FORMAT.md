@@ -52,7 +52,7 @@
   <CoordLabel X Y Z/> <UnitType Value="1" IsSurveyMode="0"/> <UnitPrecision Value="3"/>
   <ProjectMetaData MajorVersion="1" MinorVersion="6" PatchVersion="0" …>
       <SaveInformation Application="ReCap" ApplicationVersion="6.0.0.110"
-                       Timestamp="20261102T145352" UserId="Jean" Count="1"/>
+                       Timestamp="20261102T145352" UserId="user" Count="1"/>
       <ScanImportSettings> … </ScanImportSettings>
   </ProjectMetaData>
   <Project ver="1.0.0" app="Autodesk ReCap" path=… cache=…>
