@@ -38,6 +38,10 @@ RCS — контейнер Autodesk ReCap. Эталонная версия в э
     `python -m unittest discover -s tools/tests -v`.
     Целевой продукт — **Rust**: каталог `rust/`, хост `stable-x86_64-pc-windows-gnu`,
     линковка `+crt-static`, **MSVC не используется**; тесты — `cargo test`.
+    Тулчейн ставится **копированием**, `rustup` не обязателен: на машине владельца
+    это `C:\mingw64\rust` (машинные `PATH` и `CARGO_HOME=C:\mingw64\rust\cargo-home`),
+    в профиле пользователя `.rustup`/`.cargo` не остаётся (`README.md`,
+    «Тулчейн: портативная установка»).
     Паритет Rust с Python проверяется **побайтово** на эталонах (`docs/ROADMAP.md`).
     Исключение по зависимостям: `tools/las2pts.py` использует **laspy** (+ бэкенд
     `laszip` или `lazrs`) — опционально и только для импорта LAS/LAZ (декомпрессия

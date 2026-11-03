@@ -52,8 +52,12 @@ Rust выбран владельцем; обоснование записано,
 
 ## 3. Тулчейн: GNU, без MSVC
 
-- `rustup` с таргетом `stable-x86_64-pc-windows-gnu`; линкер — установленный
+- Тулчейн `stable-x86_64-pc-windows-gnu` (rustc 1.99.1); линкер — установленный
   MinGW (WinLibs, gcc 16.2, UCRT).
+- Ставится двумя равноправными способами: `rustup` (CI, другие машины) или
+  **портативно** — распаковать архив тулчейна в `C:\mingw64\rust` и задать машинные
+  `PATH` + `CARGO_HOME` (так на машине владельца, `rustup` не нужен; README,
+  раздел «Тулчейн: портативная установка»).
 - **MSVC не используется** — решение владельца (и он не нужен).
 - Release-профиль: `lto = "fat"`, `codegen-units = 1`, `strip = true`,
   `panic = "abort"`, `+crt-static`.
@@ -70,7 +74,7 @@ Python на `level_7` — только GUID, как у самого Python).
 
 | Фаза | Что | Приёмка |
 |---|---|---|
-| **R0** ✅ | поставить `rustup` с GNU-таргетом, проверить `cargo build` | `rcsconv.exe` «hello» собирается, MSVC не нужен |
+| **R0** ✅ | поставить GNU-тулчейн (`rustup`, позже перенесён портативно в `C:\mingw64\rust` — см. журнал `PLAN.md`), проверить `cargo build` | `rcsconv.exe` «hello» собирается, MSVC не нужен |
 | **R1** ✅ | workspace `rust/` + крейт `rcs-format`: заголовок, директория, блоки, тело точки, `type 1`, `type 0` | байт-в-байт с Python на `probe6/test1/test2` |
 | **R2** ✅ | `rcs-cloud` (октодерево) + парсер `.pts` → команда `pts2rcs` | байт-в-байт на `level_7.pts` (43 узла) |
 | **R4** ✅ | `cloud-las` (крейты `las` + `laz`) → `las2rcs` | байт-в-байт на `level_7.laz` |

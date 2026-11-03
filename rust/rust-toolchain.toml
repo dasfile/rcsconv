@@ -1,6 +1,7 @@
-# Тулчейн: канал stable. Хост задаётся установкой rustup (на машине владельца —
-# `rustup set default-host x86_64-pc-windows-gnu`, MSVC не используется,
-# docs/ROADMAP.md §3). Явный триплет здесь сломал бы сборку на Linux/CI.
+# Тулчейн: канал stable. Хост задаётся установкой (на машине владельца — портативный
+# тулчейн в `C:\mingw64\rust`, `rustup` не нужен, см. README). Файл читает только
+# `rustup`: без него он инертен, а в CI (Ubuntu) по нему выбирается канал.
+# Явный триплет здесь сломал бы сборку на Linux/CI.
 [toolchain]
 channel = "stable"
 profile = "minimal"

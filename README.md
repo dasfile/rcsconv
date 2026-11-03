@@ -51,12 +51,13 @@ python tools/rcp_info.py "golden/*.rcp"                     # настройки
 Требования: Python 3.11 + `numpy`. `laspy` (+ бэкенд `laszip` или `lazrs`) нужен
 только для LAS/LAZ: `pip install -e ".[las]"`.
 
-Rust-порт собирается без MSVC — нужен `rustup` с GNU-хостом:
+Rust-порт собирается без MSVC — нужен GNU-хост `x86_64-pc-windows-gnu`
+(установка тулчейна — ниже, `rustup` не обязателен):
 
 ```powershell
 cd rust
 cargo build --release      # → rust/target/release/rcsconv.exe (статический CRT)
-cargo test                 # тесты крейтов
+cargo test                 # тесты крейтов (42)
 ```
 
 Готовые команды `.exe` (то же поведение, что у скриптов: вход — файл, каталог или
@@ -70,11 +71,42 @@ rust\target\release\rcsconv.exe pts2rcs golden\probe6.pts -o out
 rust\target\release\rcsconv.exe --help
 ```
 
-Если `rustup` ещё не стоит, его ставит `rustup-init.exe` из
-[rustup.rs](https://rustup.rs/) (`--profile minimal`). Хост должен быть **GNU**,
-иначе `cargo` возьмёт MSVC-тулчейн: `rustup set default-host x86_64-pc-windows-gnu`
-(проверка — `rustc -vV` → `host: x86_64-pc-windows-gnu`). `rust-toolchain.toml`
-специально не фиксирует триплет, чтобы сборка работала и на Linux (CI).
+### Тулчейн: портативная установка, без `rustup`
+
+`rustup` не обязателен: тулчейн ставится **копированием** распакованного архива,
+профиль пользователя остаётся чистым (никаких `.rustup`/`.cargo` в `C:\Users\...`).
+
+| Что | Где на машине владельца |
+|---|---|
+| Тулчейн: `rustc`, `cargo`, `std`, `rustc_driver-*.dll`, `libgcc_s_seh-1.dll`, `libwinpthread-1.dll` | `C:\mingw64\rust` (`bin\`, `lib\`, `libexec\`, `share\`, `etc\`) |
+| Кеш крейтов (`registry\`, `.global-cache`) | `C:\mingw64\rust\cargo-home` — машинная переменная `CARGO_HOME` |
+| Линкер | MinGW/WinLibs (gcc 16.2) — `C:\mingw64\bin`, уже в системном `PATH` |
+
+Машинные переменные (действуют для всех пользователей и для новых процессов):
+
+```powershell
+# PATH: ... C:\mingw64\bin\;C:\mingw64\rust\bin; ...  ← rust\bin сразу после mingw64\bin
+[Environment]::SetEnvironmentVariable('PATH', $newPath, 'Machine')
+[Environment]::SetEnvironmentVariable('CARGO_HOME', 'C:\mingw64\rust\cargo-home', 'Machine')
+```
+
+Проверка после установки: `rustc -vV` → `host: x86_64-pc-windows-gnu`,
+`rustc --print sysroot` → `C:\mingw64\rust`, `cargo test --workspace --offline` → 42 passed
+(офлайн работает за счёт перенесённого кеша). `rust-toolchain.toml`
+(`channel = "stable"`) читает только `rustup` — без него файл инертен, но нужен CI
+(Ubuntu ставит `rustup` сам).
+
+**Обновление Rust:** скачать `rust-<версия>-x86_64-pc-windows-gnu.tar.gz`
+(≈533 МБ) и распаковать **поверх** `C:\mingw64\rust`; `cargo-home` не трогается.
+То же самое можно сделать временной установкой `rustup`.
+
+На другой машине годится и классический `rustup`: `rustup-init.exe --profile minimal`
+из [rustup.rs](https://rustup.rs/), затем `rustup set default-host x86_64-pc-windows-gnu`
+— иначе `cargo` возьмёт MSVC-тулчейн. `rust-toolchain.toml` специально не фиксирует
+триплет, чтобы сборка работала и на Linux (CI).
+
+`rust/target/` (артефакты сборки, ~300 МБ) — рабочая папка на C:, в git не входит,
+чистится `cargo clean`.
 
 ## Как проверялось
 
