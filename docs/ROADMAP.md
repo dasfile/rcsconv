@@ -68,7 +68,8 @@ Rust выбран владельцем; обоснование записано,
 точек, `type 1`, `type 0`, писатель — побайтовый паритет на 9 эталонах),
 **R2** и **R4** (октодерево, `.pts` → `.rcs`, `.las/.laz` → `.rcs`; паритет с
 Python на `level_7` — только GUID, как у самого Python), **G0** (подготовка GUI:
-крейт `rcs-conv`, прогресс и отмена в библиотеках).
+крейт `rcs-conv`, прогресс и отмена в библиотеках), **G1** (каркас
+`rcsconv-gui.exe` на `windows-sys`: окно, манифест comctl32 v6 + DPI).
 
 Порядок изменён по решению владельца: **LAZ важнее `.pts`** (съёмка идёт в `.laz`),
 поэтому R4 сделан вместе с R2, `.pts` остался вторым входом.
@@ -101,7 +102,7 @@ CLI остаётся с консолью и прежними кодами вых
 | Фаза | Что | Приёмка |
 |---|---|---|
 | **G0** ✅ | `rcs-conv` (общая оркестрация), `Progress`/`Cancel`, `Error::Cancelled`, атомарная запись `tmp`+`rename` | CLI-файлы и тексты прежние (различия только GUID), 53 теста |
-| **G1** | крейт `rcsconv-gui`: окно, message loop, манифест (comctl32 v6, `PerMonitorV2`), `build.rs` через `windres`, `panic = "unwind"` + `catch_unwind` в worker'е | окно открывается без консоли, зависимости `objdump` — только system DLL, размер замерен, `cargo check --workspace` на Linux проходит |
+| **G1** ✅ | крейт `rcsconv-gui`: окно, message loop, манифест (comctl32 v6, `PerMonitorV2`), `build.rs` через `windres`, `panic = "unwind"` + `catch_unwind` в worker'е | окно открывается без консоли, зависимости `objdump` — только system DLL, размер замерен, `cargo check --workspace` на Linux проходит |
 | **G2** | очередь файлов: `GetOpenFileNameW`, `SHBrowseForFolderW`, drag&drop (`WM_DROPFILES`), `SysListView32`, удаление/очистка, дубликаты | набор файлов совпадает с `expand_sources`; тесты модели очереди |
 | **G3** | параметры (папка вывода, `--units-scale`, recenter, флаги цвета/интенсивности, `-m`, GUID), валидация, сохранение в `HKCU\Software\rcsconv\gui` | тест «состояние GUI → `Options` == `Options::parse` для эквивалентной строки» |
 | **G4** | worker-поток, прогресс-бар по этапам и точкам (`WM_TIMER` + атомарные счётчики), «Отмена», лог, «открыть папку», итог | `level_7.laz` из GUI с `-g` = тот же файл, что у CLI; отмена не оставляет файла; UI не замирает |

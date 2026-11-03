@@ -1,5 +1,5 @@
 ﻿[workspace]
-members = ["cloud-las", "cloud-pts", "rcs-cloud", "rcs-conv", "rcs-format", "rcsconv"]
+members = ["cloud-las", "cloud-pts", "rcs-cloud", "rcs-conv", "rcs-format", "rcsconv", "rcsconv-gui"]
 resolver = "2"
 
 # Release-РїСЂРѕС„РёР»СЊ РїРѕРґ С‚СЂРµР±РѕРІР°РЅРёРµ В«РѕРґРёРЅ СЃС‚Р°С‚РёС‡РµСЃРєРёР№ .exeВ» (docs/ROADMAP.md В§1, В§3).
@@ -8,4 +8,7 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-panic = "abort"
+# unwind, а не abort: GUI (`rcsconv-gui`) ловит панику worker'а через
+# `catch_unwind` и показывает окно ошибки вместо тихого исчезновения
+# (решение владельца, docs/ROADMAP.md §4.1). Цена — ~40 КБ в бинарнике.
+panic = "unwind"

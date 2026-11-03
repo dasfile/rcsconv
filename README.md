@@ -56,8 +56,8 @@ Rust-порт собирается без MSVC — нужен GNU-хост `x86_
 
 ```powershell
 cd rust
-cargo build --release      # → rust/target/release/rcsconv.exe (статический CRT)
-cargo test                 # тесты крейтов (42)
+cargo build --release      # → rcsconv.exe и rcsconv-gui.exe (статический CRT)
+cargo test                 # тесты крейтов и GUI-логики (57)
 ```
 
 Готовые команды `.exe` (то же поведение, что у скриптов: вход — файл, каталог или
@@ -70,6 +70,27 @@ rust\target\release\rcsconv.exe las2rcs scan.las --units-scale 0.3048 --recenter
 rust\target\release\rcsconv.exe pts2rcs golden\probe6.pts -o out
 rust\target\release\rcsconv.exe --help
 ```
+
+### GUI: `rcsconv-gui.exe`
+
+Интерфейс — нативный Win32 (без фреймворка), отдельный бинарник рядом с CLI:
+`rcsconv.exe` остаётся консольным (`Subsystem = Windows CUI`), `rcsconv-gui.exe`
+работает без окна консоли (`Windows GUI`) и не запускает CLI дочерним процессом —
+оба линкуют одни и те же крейты. Связь с системой — крейт `windows-sys`
+(единственная новая зависимость; одна скачанная `.crate` в `cargo-home`),
+`unsafe` изолирован в `rust/rcsconv-gui/src/win32.rs`.
+
+```powershell
+rust\target\release\rcsconv-gui.exe        # окно
+```
+
+Состояние: фаза **G1** — окно-каркас с раскладкой и DPI (`PerMonitorV2`),
+манифест comctl32 v6 вкомпилирован `windres`. Очередь файлов, параметры,
+прогресс/отмена и сама конвертация — фазы G2…G4 (`docs/ROADMAP.md` §4.1).
+
+Линковщик может предупредить `.rsrc merge failure: multiple non-default
+manifests` — это нормально: в exe два манифеста (наш и встроенный CRT), но
+`FindResource(1, RT_MANIFEST)` отдаёт наш (проверено, `out/diag/pe_resources.py`).
 
 ### Тулчейн: портативная установка, без `rustup`
 
