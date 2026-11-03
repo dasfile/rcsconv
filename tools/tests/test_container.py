@@ -1385,6 +1385,135 @@ class CorpusToolTests(unittest.TestCase):
         )
 
 
+class Las2RcsTests(unittest.TestCase):
+    """`.las/.laz` → `.rcs`: тот же писатель, другой источник точек.
+
+    Проверяем: координаты/цвет/интенсивность доходят до файла, результат совпадает
+    с `.pts`-путём (расходится только GUID), CLI ведёт себя как `pts2rcs`.
+    """
+
+    POINTS = (
+        (0.1, 0.2, 0.3, 10, 200, 100, 50),
+        (1.5, 0.0, 0.0, 20, 10, 20, 30),
+        (0.0, 1.5, 0.0, 30, 0, 0, 0),
+        (-1.25, -0.5, 1.75, 40, 255, 255, 255),
+    )
+
+    @staticmethod
+    def write_las(path: Path, points, *, color: bool = True) -> Path:
+        """Собрать LAS своим генератором: point format 2 (цвет+интенсивность)."""
+        import laspy
+        import numpy as np
+
+        header = laspy.LasHeader(point_format=2 if color else 0, version="1.2")
+        header.scales = [0.001, 0.001, 0.001]
+        header.offsets = [0.0, 0.0, 0.0]
+        las = laspy.LasData(header)
+        las.x = np.array([row[0] for row in points], dtype=float)
+        las.y = np.array([row[1] for row in points], dtype=float)
+        las.z = np.array([row[2] for row in points], dtype=float)
+        las.intensity = np.array([row[3] for row in points], dtype=np.uint16)
+        if color:
+            las.red = np.array([row[4] for row in points], dtype=np.uint16)
+            las.green = np.array([row[5] for row in points], dtype=np.uint16)
+            las.blue = np.array([row[6] for row in points], dtype=np.uint16)
+        las.write(path)
+        return path
+
+    def test_points_color_and_intensity_reach_file(self) -> None:
+        import las2rcs
+        from rcs_points import decode_all
+
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.write_las(root / "cloud.las", self.POINTS)
+            self.assertEqual(las2rcs.main([str(source), "-o", str(root / "out"), "-f"]), 0)
+            container = parse_file(root / "out" / "cloud.rcs")
+
+        failed = [check for check in check_invariants(container) if not check.ok]
+        self.assertEqual(failed, [])
+        self.assertEqual(container.header.count, len(self.POINTS))
+        decoded = decode_all(container)
+        self.assertEqual(len(decoded), len(self.POINTS))
+        center = container.header.center
+        expected = sorted(
+            (row[0], row[1], row[2], row[4], row[5], row[6], row[3]) for row in self.POINTS
+        )
+        actual = sorted(
+            (
+                round(point.x + center[0], 3),
+                round(point.y + center[1], 3),
+                round(point.z + center[2], 3),
+                point.r,
+                point.g,
+                point.b,
+                point.intensity,
+            )
+            for point in decoded
+        )
+        for got, want in zip(actual, expected):
+            for index in range(3):
+                self.assertAlmostEqual(got[index], want[index], places=3)
+            self.assertEqual(got[3:], want[3:])
+
+    def test_las_and_pts_pipelines_agree(self) -> None:
+        """Одни и те же точки через `.las` и `.pts` дают побайтово один файл."""
+        import las2rcs
+        from pts2rcs import build_output
+
+        guid = "{11111111_2222_3333_4444_555555555555}"
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.write_las(root / "cloud.las", self.POINTS)
+            pts = root / "cloud.pts"
+            pts.write_text(
+                "\n".join(
+                    f"{row[0]} {row[1]} {row[2]} {row[3]} {row[4]} {row[5]} {row[6]}"
+                    for row in self.POINTS
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                las2rcs.main([str(source), "-o", str(root / "las"), "-f", "-g", guid]),
+                0,
+            )
+            from_las = (root / "las" / "cloud.rcs").read_bytes()
+            from_pts, _ = build_output(pts, guid=guid)
+
+        self.assertEqual(from_las, from_pts)
+
+    def test_bounds_match_pts_on_real_laz(self) -> None:
+        """Заголовок LAS/LAZ даёт тот же bbox, что и `.pts` из него (0.1 мм)."""
+        from las_read import bounds as las_bounds
+        from pts_read import bounds as pts_bounds
+
+        laz = GOLDEN / "level_7.laz"
+        pts = GOLDEN / "level_7.pts"
+        if not laz.exists() or not pts.exists():
+            raise unittest.SkipTest(f"нет {laz} или {pts}")
+        low_las, high_las, count_las = las_bounds(laz)
+        low_pts, high_pts, count_pts = pts_bounds(pts)
+        self.assertEqual(count_las, count_pts)
+        for axis in range(3):
+            self.assertAlmostEqual(low_las[axis], low_pts[axis], delta=1e-3)
+            self.assertAlmostEqual(high_las[axis], high_pts[axis], delta=1e-3)
+
+    def test_cli_names_output_and_refuses_rcs(self) -> None:
+        import las2rcs
+
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = self.write_las(root / "cloud.las", self.POINTS)
+            self.assertEqual(las2rcs.main([str(source)]), 0)
+            self.assertTrue((root / "cloud.rcs").exists(), "имя выхода — рядом с входом")
+            self.assertEqual(las2rcs.main([str(root / "cloud.rcs")]), 2)
+            # .pts на входе LAS-конвертера — ошибка направления, а не «нет файлов»
+            wrong = root / "cloud.pts"
+            wrong.write_text("0 0 0\n", encoding="utf-8")
+            self.assertEqual(las2rcs.main([str(wrong)]), 2)
+
+
 class RcpInfoTests(unittest.TestCase):
     """`.rcp` = ZIP + XML: настройки импорта читаются (`docs/RCP-FORMAT.md`)."""
 

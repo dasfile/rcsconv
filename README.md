@@ -15,7 +15,12 @@
 
 ```
 tools/               парсер, писатель, конвертеры, CLI (основной код)
-tools/tests/         79 тестов (unittest)
+  cloud.py             точка и «источник точек» (общий протокол)
+  pts_read.py          чтение .pts        → pts2rcs.py
+  las_read.py          чтение .las/.laz   → las2rcs.py
+  rcs_build.py         октодерево и сборка .rcs (о формате входа не знает)
+  rcs_cli.py           общие аргументы и цикл по файлам
+tools/tests/         85 тестов (unittest)
 docs/                спецификации (.rcs, .rcp), корпус, handover
 golden/              ВСЕ данные: .laz/.pts, проекты .rcp, эталоны .rcs (в git НЕ попадает)
   golden/lazimport/    вторая ветка: импорт напрямую из .laz
@@ -34,7 +39,7 @@ dumps/               эксперименты и дампы (в git НЕ поп�
 (`probe6/test1/test2`) и `reference/*_orig.rcs`.
 
 ```powershell
-python -m unittest discover -s tools/tests          # 79 тестов
+python -m unittest discover -s tools/tests          # 85 тестов
 ```
 
 Без `golden/` тесты, которым нужны эталоны, **скипаются** (`SkipTest`), а не падают —
@@ -50,6 +55,12 @@ python tools/rcs2pts.py out/probe6.rcs -o out -c -i         # → out/probe6.pts
 python tools/validate_pts.py golden/probe6.pts out/probe6.rcs -s
 python tools/rcs_write.py out/probe6.rcs out/copy.rcs       # read → write, байт-в-байт
 python tools/analyze_type1.py out/probe6.rcs
+
+# --- LAS/LAZ → .rcs напрямую (без текстового посредника) ---
+python tools/las2rcs.py golden/level_7.laz -o out          # → out/level_7.rcs
+python tools/las2rcs.py "golden/*.laz" -o out              # пачка
+python tools/las2rcs.py scan.las --units-scale 0.3048 --recenter center
+python tools/validate_pts.py golden/level_7.pts out/level_7.rcs -s
 
 # --- корпус (реальные сканы) ---
 python tools/corpus_status.py golden -g golden              # что снято, count, узлы
@@ -81,6 +92,9 @@ CLI-правило: первый аргумент — вход (файл, кат
 - `.rcs`: читатель и писатель готовы, спецификация выпущена; приёмка — **Revit 2023**
   на 9 реальных облаках (0.3–4.0 млн точек). Писатель собирает файл **без ReCap и без
   шаблона**; `read → write` побайтово идентичен на 13 эталонах.
+- Входы: `.pts` (`pts2rcs`) и **`.las/.laz`** (`las2rcs`, без текстового посредника).
+  На `level_7.laz` получается то же дерево, что у ReCap: 43 узла, глубина 3,
+  блоки `type 1` и `type 0` — байт-в-байт как в `golden/level_7.rcs`.
 - `.rcp`: контейнер и XML-модель разобраны (`docs/RCP-FORMAT.md`), из проекта
   читаются фактические настройки импорта, включая `Decimation grid`.
 - Открытые вопросы («на понимание», не блокируют работу) — `docs/RCS-FORMAT.md` §12.

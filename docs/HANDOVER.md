@@ -17,6 +17,7 @@
 | Дерево узлов (`type 3`, запись 368 Б), тела точек (`type 11`, 16 Б) | ✅ |
 | Метаданные (`type 1`) и свойства (`type 0`) — разобраны и генерируются | ✅ |
 | Читатель (`rcs2pts`), писатель (`rcs_write` + `pts2rcs`) — без ReCap и шаблона | ✅ Revit 2023 |
+| Входы: `.pts` (`pts2rcs`) и `.las/.laz` (`las2rcs`) через `rcs_build` | ✅ |
 | `.rcp` = ZIP + XML, настройки импорта (`rcp_info`) | ✅ `docs/RCP-FORMAT.md` |
 | Корпус: `corpus_status`, `validate_pts`, `pts_subset`, `las2pts` | ✅ `docs/CORPUS.md` |
 | Тесты: 79 (`python -m unittest discover -s tools/tests`) | ✅ без данных часть скипается |
@@ -83,7 +84,7 @@
 
 Прочитай: PLAN.md, docs/HANDOVER.md, .clinerules, docs/RCS-FORMAT.md,
 docs/RCP-FORMAT.md, docs/CORPUS.md, README.md, затем выполни
-python -m unittest discover -s tools/tests (ожидается 79 тестов, часть скипается без данных).
+python -m unittest discover -s tools/tests (ожидается 85 тестов, часть скипается без данных).
 
 Данные: всё в golden/ (в git не входит) — .laz/.pts, проекты .rcp, эталоны .rcs,
 raw Support/*.rcs, reference/*_orig.rcs. Результаты писать в out/.

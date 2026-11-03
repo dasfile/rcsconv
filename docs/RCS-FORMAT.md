@@ -16,8 +16,9 @@
 Чем проверялось:
 
 - `tools/rcs_inspect.py` — разбор контейнера + инварианты;
-- `tools/tests/test_container.py` — 79 тестов (`python -m unittest discover -s tools/tests`);
+- `tools/tests/test_container.py` — 85 тестов (`python -m unittest discover -s tools/tests`);
 - `tools/rcp_info.py` — чтение проекта `.rcp` (ZIP + XML): версия, сканы, настройки импорта;
+- `tools/las2rcs.py` — `.las/.laz` → `.rcs` (через `las_read` + `rcs_build`);
 - `tools/rcs_write.py` — обратная сборка: `read → write` побайтово идентичен на 13 файлах;
 - `tools/pts2rcs.py` — генерация `.rcs` из `.pts`; `probe6` воспроизводится до байта
   (кроме GUID и двух байт интенсивности);
@@ -614,6 +615,8 @@ CLI (`tools/cli_paths.py`): первый аргумент — вход (файл
 | Импорт LAS/LAZ | `tools/las2pts.py` (`scan`, `convert`, `_to8`) |
 | Сериализация и генераторы блоков | `tools/rcs_write.py` (`build_file`, `build_tile_block`, `build_metadata_block`, `build_properties_block`, `make_guid`) |
 | `.pts` → `.rcs` | `tools/pts2rcs.py` (`build_output`, `read_pts`, `root_half`, `choose_depth`) |
+| `.las/.laz` → `.rcs` | `tools/las2rcs.py` + `tools/las_read.py` (`read_las`, `bounds`, `LasOptions`) |
+| Общий слой конвертеров | `tools/cloud.py` (точка, источник), `tools/rcs_build.py` (`build_from_source`), `tools/rcs_cli.py` (аргументы и цикл) |
 | Инварианты | `tools/rcs_checks.py` (`check_invariants`) |
 | Проект `.rcp` (ZIP + XML, настройки импорта) | `tools/rcp_info.py` (`read_project`, `describe`) |
 
@@ -677,12 +680,13 @@ CLI (`tools/cli_paths.py`): первый аргумент — вход (файл
 
 
 ```powershell
-python -m unittest discover -s tools/tests -v        # 79 тестов
+python -m unittest discover -s tools/tests -v        # 85 тестов
 python tools/rcs_inspect.py golden/level_7.rcs --pts golden/level_7.pts
 python tools/rcs2pts.py golden/level_7.rcs --stdout > out/level_7.pts
 python tools/rcs_write.py golden/level_7.rcs out/copy.rcs      # проверка round-trip
 python tools/pts2rcs.py golden/level_7.pts -o out            # auto: 43 узла, как в эталоне
 python tools/pts2rcs.py "golden/*.pts" -o out                  # пачка → out/
+python tools/las2rcs.py golden/level_7.laz -o out              # LAS/LAZ → .rcs (laspy)
 python tools/validate_pts.py "golden/*.pts" -g golden          # сводка по всем парам
 python tools/corpus_status.py golden -g golden                 # чек-лист корпуса
 python tools/pts_subset.py scan.pts -n 20000 -o out/subset      # равномерная подвыборка
