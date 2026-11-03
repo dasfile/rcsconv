@@ -1,0 +1,6 @@
+# Тулчейн фиксирован решением владельца: GNU-хост, MSVC не используется
+# (docs/ROADMAP.md §3). Триплет указан явно: `channel = "stable"` разворачивается
+# в хост по умолчанию из rustup и может оказаться msvc.
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnu"
+profile = "minimal"

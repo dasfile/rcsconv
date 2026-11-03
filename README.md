@@ -20,6 +20,9 @@
 Дополнительно: подвыборка `.pts`, LAS/LAZ → `.pts`, сравнение двух `.rcs`,
 разбор узлов и метаданных, чек-лист корпуса.
 
+**В планах** — автономный `rcsconv.exe` на Rust (один статический файл, без Python
+и DLL, побайтовый паритет с этой реализацией): [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 ## Быстрый старт
 
 ```powershell
@@ -47,6 +50,20 @@ python tools/rcp_info.py "golden/*.rcp"                     # настройки
 Требования: Python 3.11 + `numpy`. `laspy` (+ бэкенд `laszip` или `lazrs`) нужен
 только для LAS/LAZ: `pip install -e ".[las]"`.
 
+Rust-порт (в работе, см. `docs/ROADMAP.md`) собирается без MSVC — нужен `rustup`
+с GNU-хостом:
+
+```powershell
+cd rust
+cargo build --release      # → rust/target/release/rcsconv.exe (статический CRT)
+cargo test                 # тесты крейтов
+```
+
+Если `rustup` ещё не стоит, его ставит `rustup-init.exe` из
+[rustup.rs](https://rustup.rs/) (`--default-host x86_64-pc-windows-gnu`,
+`--profile minimal`). Триплет зафиксирован в `rust/rust-toolchain.toml`, поэтому
+`cargo` сам подтянет GNU-канал.
+
 ## Как проверялось
 
 Главное в проекте — не «размер файла совпал», а проверяемость:
@@ -72,7 +89,7 @@ python tools/rcp_info.py "golden/*.rcp"                     # настройки
 Поэтому каждый факт о формате помечен **ПОДТВЕРЖДЕНО / ГИПОТЕЗА / ОПРОВЕРГНУТО**
 и опирается на тест или скрипт (`docs/RCS-FORMAT.md` §0). В разделе «ОПРОВЕРГНУТО»
 (§13) собраны в том числе ошибки раннего подхода 2025 года — чтобы их никто не
-повторил.
+повторил; короткий пост-мортем — [`docs/LESSONS.md`](docs/LESSONS.md).
 
 ## Что внутри
 
@@ -88,7 +105,8 @@ tools/                 парсер, писатель, конвертеры, CLI
   rcs_write.py          сериализация: собрать файл из блоков
   analyze_*.py          разбор `type 1`, заголовков, payload'ов
 tools/tests/           85 тестов (unittest)
-docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md, ROADMAP.md, GIT.md
+rust/                  Rust-порт (целевой rcsconv.exe): workspace, пока каркас R0
+docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md, ROADMAP.md, LESSONS.md, GIT.md
 golden/                данные и эталоны (в git НЕ входят)
 out/                   результаты прогонов (в git НЕ входят)
 ```

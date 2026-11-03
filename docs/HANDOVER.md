@@ -8,7 +8,8 @@
 Реверс-инжиниринг форматов Autodesk ReCap: контейнер `.rcs` (сигнатура `ADOCT`,
 эталонная версия ReCap **2020 / 6.0.0.110**) и проект `.rcp`. Цель — обратимый
 читатель и писатель `.rcs`, проверяемый Revit. Код — Python 3.11 (stdlib + `numpy`);
-`laspy` нужен только для LAS/LAZ.
+`laspy` нужен только для LAS/LAZ. Целевой продукт — автономный `rcsconv.exe` на
+Rust (`docs/ROADMAP.md`); Python остаётся эталоном и оракулом.
 
 ## Состояние
 
@@ -22,13 +23,23 @@
 | `.rcp` = ZIP + XML, настройки импорта (`rcp_info`) | ✅ `docs/RCP-FORMAT.md` |
 | Корпус и эталоны: `corpus_status`, `validate_pts`, `pts_subset`, `las2pts` | ✅ `docs/CORPUS.md` |
 | Тесты | 85 (`python -m unittest discover -s tools/tests`) |
+| Rust-каркас `rust/` (R0): GNU-тулчейн, статический `rcsconv.exe` | ✅ |
 
 ## Следующая задача
 
-Обязательных задач нет. Открытые вопросы («на понимание») — `docs/RCS-FORMAT.md` §12:
-децимация экспорта (сетка ≈5 мм), байты тела `[8]`/`[12]`/`[13]`, `kind 0…7`, поля
-записи узла `@96…`, `count` заголовка против суммы по узлам. Ветка `.e57` отложена
-(`docs/CORPUS.md`); Rust-порт и плагин Revit — `docs/ROADMAP.md`.
+**R0/R1: Rust-порт** (`docs/ROADMAP.md`). R0 — поставить `rustup` с GNU-таргетом
+(`stable-x86_64-pc-windows-gnu`, без MSVC) и собрать «hello»-`rcsconv.exe`;
+R1 — workspace `rust/` и крейт `rcs-format` (заголовок, директория, блоки, тело
+точки, `type 1`, `type 0`) с побайтовым паритетом на `probe6/test1/test2`.
+
+Python-реализация по приёмке закрыта и с критического пути снята: она эталон и
+оракул для паритетных тестов, а также среда исследования §12. Оптимизация Python
+(`numpy`, скорость) **не планируется** — цель задаётся в Rust.
+
+Открытые вопросы «на понимание» — `docs/RCS-FORMAT.md` §12: децимация экспорта
+(сетка ≈5 мм), байты тела `[8]`/`[12]`/`[13]`, `kind 0…7`, поля записи узла
+`@96…`, `count` заголовка против суммы по узлам. Ветка `.e57` отложена
+(`docs/CORPUS.md`); плагин Revit ждёт материалы владельца.
 
 ## Про данные
 
@@ -52,6 +63,8 @@ raw `Support/*.rcs`, вторая ветка `lazimport/` и `reference/*_orig.r
 4. `README.md`, `docs/CORPUS.md` — как запускать и на каких данных.
 5. `tools/rcs_blocks.py` → `tools/rcs_points.py` → `tools/rcs_write.py` → `tools/rcs_build.py`.
 6. `tools/tests/test_container.py` — что гарантировано тестами.
+7. `docs/LESSONS.md` — почему первая попытка 2025 года провалилась (если берётесь
+   за Rust-порт — читать до кода).
 
 ## Заметки по хозяйству
 

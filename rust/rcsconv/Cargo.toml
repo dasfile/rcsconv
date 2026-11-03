@@ -1,0 +1,13 @@
+[package]
+name = "rcsconv"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Reader/writer for Autodesk ReCap .rcs (ADOCT containers)"
+license = "MIT"
+
+[[bin]]
+name = "rcsconv"
+path = "src/main.rs"
+
+[dependencies]

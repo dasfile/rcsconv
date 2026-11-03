@@ -13,5 +13,8 @@ dumps/
 __pycache__/
 *.pyc
 
+# Rust
+rust/target/
+
 # Личные заметки (исключены и для агента, см. .clineignore)
 usernotes.txt

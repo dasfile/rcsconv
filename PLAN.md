@@ -23,6 +23,7 @@ Revit на машине) на **9 реальных облаках** (0.3–4.0 �
 | Корпус: `golden/` — ветки `.pts` и `.laz`, raw+export+reference | ✅ `docs/CORPUS.md` |
 | Спецификация + чек-лист для другой реализации | `docs/RCS-FORMAT.md` §9.1, Приложение C |
 | Тесты | 85 (`unittest`); без `golden/` часть классов скипается |
+| Целевой продукт: `rcsconv.exe` на Rust (GNU, `crt-static`) | ⏳ R0 сделан, R1–R5 — `docs/ROADMAP.md` |
 
 **Обязательных задач нет.** Открытые вопросы (`docs/RCS-FORMAT.md` §12) — «на
 понимание», на совместимость не влияют: смысл записей `kind 0…7`, поля записи узла
@@ -207,6 +208,26 @@ Revit на машине) на **9 реальных облаках** (0.3–4.0 �
   прореженные ReCap); `validate_pts -s` зелёный, bbox расходится на 0.3 мм.
   Время — 19 с на 324 680 точек.
 
+### Фаза R0 — Rust: тулчейн и каркас `rcsconv.exe`  ✅
+
+- [x] `rustup` (без прав администратора) + `stable-x86_64-pc-windows-gnu`
+      (`rustc 1.99.1`, профиль `minimal`); линкер — MinGW из `C:\mingw64`
+      (WinLibs, gcc 16.2). **MSVC не используется.** Грабли: `rustup-init` с
+      `--default-host` не переключил дефолт, поэтому `channel = "stable"` в
+      `rust-toolchain.toml` развернулся в msvc и подтянул второй тулчейн —
+      исправлено явным триплетом `stable-x86_64-pc-windows-gnu` и
+      `rustup set default-host`; msvc-тулчейн удалён
+- [x] `rust/` — workspace: `Cargo.toml` (release: `lto = "fat"`,
+      `codegen-units = 1`, `strip = true`, `panic = "abort"`), `rust-toolchain.toml`,
+      `.cargo/config.toml` (`-C target-feature=+crt-static`), крейт `rcsconv`
+- [x] `rcsconv --version` / `--help`, разбор аргументов вынесен в `parse()` + 4 теста
+- **Приёмка:** `cargo build --release` → `rcsconv.exe` **268 288 Б** (0.27 МБ при
+  пороге 6 МБ); `objdump -p` — только `KERNEL32`/`ntdll`/UCRT
+  (`api-ms-win-crt-*`, входит в Windows 10+), без `libgcc_s_seh-1.dll`,
+  `libwinpthread-1.dll` и без MSVC-рантайма; `cargo test` — 4 passed
+- Каталог `rust/` — исключение из `.clinerules` п.13, оговорённое в
+  `docs/ROADMAP.md` (решение владельца); `rust/target/` в `.gitignore`
+
 ## Пробы: направление закрыто (не повторять)
 
 Синтетические облака ReCap принимает нестабильно, лог пуст. Ниже — результат, чтобы
@@ -281,6 +302,8 @@ python tools/rcs_compare.py A.rcs B.rcs                    # сравнение 
 | 2026-11-03 | Фаза 10: `.las/.laz` → `.rcs`, конвертер разделён на слои; 4 теста (85) | `cloud.py` (точка + источник), `pts_read.py`, `las_read.py`, `rcs_build.py` (октодерево/сборка, о формате входа не знает), `rcs_cli.py` (аргументы и цикл); `pts2rcs` — тонкий CLI, прежний API сохранён (81 тест без правок). `las2rcs`: LAS/LAZ чанками через laspy, 16-битные цвет/интенсивность → 8 бит, `--units-scale/--recenter`. На `level_7.laz`: 324 680 точек → 43 узла, глубина 3, `type 1 = (1,8,13,43)` и `type 0` **байт-в-байт** как у ReCap; 19 с на файл |
 
 | 2026-11-02 | уточнение байта интенсивности и цвета | Цвет (`[9:12]`, BGR) копируется **дословно**: 100 % точек эталонов в палитре источника, в обеих ветках (`.pts` и `.laz`). Байт `[8]` — канал раскраски: `.pts` с нулевой интенсивностью → 255 у всех; `.laz` (`HasIntensity=0`) → линейный градиент по высоте (corr с z = 1.000); без колонки → мусор. ОПРОВЕРГНУТО «`[12:16]` всегда 0»: у корпуса `[12]` = 0…255, `[13]` = 0…4. ULP: два импорта одного `.pts` дают разный младший бит double в `center`/`half`, поэтому побайтовое доказательство перенесено на `reference/*_orig.rcs` |
+| 2026-11-03 | Rust-first: R0 (тулчейн) + документы, 4 Rust-теста | Роли зафиксированы: **Python — эталон/оракул и среда исследования, Rust — целевой продукт**; оптимизация numpy снята с критического пути. Поставлен `rustup` без прав администратора: `stable-x86_64-pc-windows-gnu` (rustc 1.99.1, minimal), линкер — MinGW `C:\mingw64` (gcc 16.2), MSVC не используется. Учебная грабля: `rustup-init --default-host` не сменил дефолт → `channel = "stable"` развернулся в msvc и rustup подтянул второй тулчейн; лечится явным триплетом в `rust-toolchain.toml` + `rustup set default-host` (msvc удалён). Каркас `rust/`: workspace + крейт `rcsconv`, release-профиль (`lto=fat`, `cgu=1`, `strip`, `panic=abort`), `.cargo/config.toml` с `+crt-static`. Приёмка R0: `rcsconv.exe` **268 288 Б**, зависимости только `KERNEL32`/`ntdll`/UCRT (без `libgcc`/`libwinpthread`/MSVC-рантайма), `--version`/`--help`/код 2 на неизвестный аргумент, `cargo test` 4 passed; Python-тесты — 85 OK (3 скипа). Документы: новый `docs/LESSONS.md` (пост-мортем 2025: вывод, 7 ошибок, почему казалось «закрытой дверью», что сработало, что зафиксировано) со ссылками из README и §13; `docs/ROADMAP.md` переписан под Rust-first (цель `.exe`, критерии ≤6 МБ / ≤30 с на 4 млн / побайтовый паритет, обоснование Rust vs C, фазы R0–R5); HANDOVER и README обновлены. CI остаётся Ubuntu-only (Python 3.11/3.12), джоба `cargo test` — после R1 |
+
 
 
 
