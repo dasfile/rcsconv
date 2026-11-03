@@ -225,8 +225,8 @@ Revit на машине) на **9 реальных облаках** (0.3–4.0 �
   пороге 6 МБ); `objdump -p` — только `KERNEL32`/`ntdll`/UCRT
   (`api-ms-win-crt-*`, входит в Windows 10+), без `libgcc_s_seh-1.dll`,
   `libwinpthread-1.dll` и без MSVC-рантайма; `cargo test` — 4 passed
-- Каталог `rust/` — исключение из `.clinerules` п.13, оговорённое в
-  `docs/ROADMAP.md` (решение владельца); `rust/target/` в `.gitignore`
+- Каталог `rust/` закреплён в `.clinerules`: п.10 (Rust — целевой продукт, GNU,
+  без MSVC) и п.13 (код — `tools/` и `rust/`); `rust/target/` в `.gitignore`
 
 ## Пробы: направление закрыто (не повторять)
 
@@ -303,6 +303,8 @@ python tools/rcs_compare.py A.rcs B.rcs                    # сравнение 
 
 | 2026-11-02 | уточнение байта интенсивности и цвета | Цвет (`[9:12]`, BGR) копируется **дословно**: 100 % точек эталонов в палитре источника, в обеих ветках (`.pts` и `.laz`). Байт `[8]` — канал раскраски: `.pts` с нулевой интенсивностью → 255 у всех; `.laz` (`HasIntensity=0`) → линейный градиент по высоте (corr с z = 1.000); без колонки → мусор. ОПРОВЕРГНУТО «`[12:16]` всегда 0»: у корпуса `[12]` = 0…255, `[13]` = 0…4. ULP: два импорта одного `.pts` дают разный младший бит double в `center`/`half`, поэтому побайтовое доказательство перенесено на `reference/*_orig.rcs` |
 | 2026-11-03 | Rust-first: R0 (тулчейн) + документы, 4 Rust-теста | Роли зафиксированы: **Python — эталон/оракул и среда исследования, Rust — целевой продукт**; оптимизация numpy снята с критического пути. Поставлен `rustup` без прав администратора: `stable-x86_64-pc-windows-gnu` (rustc 1.99.1, minimal), линкер — MinGW `C:\mingw64` (gcc 16.2), MSVC не используется. Учебная грабля: `rustup-init --default-host` не сменил дефолт → `channel = "stable"` развернулся в msvc и rustup подтянул второй тулчейн; лечится явным триплетом в `rust-toolchain.toml` + `rustup set default-host` (msvc удалён). Каркас `rust/`: workspace + крейт `rcsconv`, release-профиль (`lto=fat`, `cgu=1`, `strip`, `panic=abort`), `.cargo/config.toml` с `+crt-static`. Приёмка R0: `rcsconv.exe` **268 288 Б**, зависимости только `KERNEL32`/`ntdll`/UCRT (без `libgcc`/`libwinpthread`/MSVC-рантайма), `--version`/`--help`/код 2 на неизвестный аргумент, `cargo test` 4 passed; Python-тесты — 85 OK (3 скипа). Документы: новый `docs/LESSONS.md` (пост-мортем 2025: вывод, 7 ошибок, почему казалось «закрытой дверью», что сработало, что зафиксировано) со ссылками из README и §13; `docs/ROADMAP.md` переписан под Rust-first (цель `.exe`, критерии ≤6 МБ / ≤30 с на 4 млн / побайтовый паритет, обоснование Rust vs C, фазы R0–R5); HANDOVER и README обновлены. CI остаётся Ubuntu-only (Python 3.11/3.12), джоба `cargo test` — после R1 |
+| 2026-11-03 | `.clinerules` приведены в соответствие с Rust-first | Правила больше не противоречат структуре: п.10 — Python объявлен **эталоном и средой исследования**, целевой продукт — Rust (`rust/`, `stable-x86_64-pc-windows-gnu`, `+crt-static`, MSVC не используется, `cargo test`), паритет с Python — побайтово на эталонах; п.13 — код разрешён в `tools/` (Python) и `rust/` (workspace `rcsconv`, `rust/target/` в `.gitignore`). Смысл остальных пунктов не менялся (правка только про технологии и размещение кода) |
+
 
 
 
