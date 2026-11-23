@@ -118,7 +118,8 @@ mantissa and exponent and rounds with 64-bit integer arithmetic.
    `Path.GetFullPath`, case-insensitive) and create a `PointCloudInstance` with
    `Transform.Identity` inside a transaction.
 7. Report the path, element id, engine, point/tile statistics and the bbox in
-   metres.
+   metres. The engine line says `rcs` for the DLL and `built-in C# writer` for the
+   fallback.
 
 The `.rcs` stays referenced by the model: the chosen folder must stay in place, or
 the cloud has to be relinked after the file is moved or deleted.
@@ -131,6 +132,7 @@ the cloud has to be relinked after the file is moved or deleted.
 | Linking into the model (`PointCloudType` + `PointCloudInstance`) | done (verify in Revit with the probe) |
 | `.las` reader (binary LAS 1.2/1.4, formats 0–3) | next |
 | `.laz` | supported through `rcsconv.dll` (the Rust crate `laz`); no C# LASzip code |
+| no DLL | fallback: `.pts` converts with the built-in C# writer (buffered in memory); `.las`/`.laz` require the DLL |
 | `.e57` | deferred with the format branch (`docs/CORPUS.md`) |
 | Batch conversion of a folder | later |
 

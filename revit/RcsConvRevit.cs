@@ -1156,31 +1156,68 @@ namespace IvanTools
                 break;
             }
 
-            if (!EnsureRustDll())
+            bool dllReady = EnsureRustDll();
+            if (!dllReady && extension != ".pts")
+            {
+                TaskDialog.Show(Caption,
+                    "rcsconv.dll is required for .las/.laz files.\n\n" +
+                    "Build it with: cargo build --release -p rcsconv-ffi");
                 return Result.Failed;
+            }
 
             DllResult built = null;
+            BuildStats fallbackStats = null;
+            bool usedFallback = false;
             if (!reuse)
             {
-                built = RustDll.Convert(input, target, null, 65536, 1);
-                if (!built.Ok && IsFileBusy(target))
+                if (dllReady)
                 {
-                    string alternative = UniqueTarget(target);
-                    DllResult retry = RustDll.Convert(input, alternative, null, 65536, 1);
-                    if (retry.Ok)
+                    built = RustDll.Convert(input, target, null, 65536, 1);
+                    if (!built.Ok && IsFileBusy(target))
                     {
-                        Log("locked '" + target + "', saved as '" + alternative + "'");
-                        target = alternative;
-                        built = retry;
+                        string alternative = UniqueTarget(target);
+                        DllResult retry = RustDll.Convert(input, alternative, null, 65536, 1);
+                        if (retry.Ok)
+                        {
+                            Log("locked '" + target + "', saved as '" + alternative + "'");
+                            target = alternative;
+                            built = retry;
+                        }
                     }
+                    if (!built.Ok)
+                    {
+                        Log("ffi failed: " + built.Message);
+                        TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + built.Message);
+                        return Result.Failed;
+                    }
+                    target = built.Path;
                 }
-                if (!built.Ok)
+                else
                 {
-                    Log("ffi failed: " + built.Message);
-                    TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + built.Message);
-                    return Result.Failed;
+                    usedFallback = true;
+                    string failure = BuildWithCSharp(input, target, out fallbackStats);
+                    if (failure != null && IsFileBusy(target))
+                    {
+                        string alternative = UniqueTarget(target);
+                        string retryFailure = BuildWithCSharp(input, alternative, out fallbackStats);
+                        if (retryFailure == null)
+                        {
+                            Log("locked '" + target + "', saved as '" + alternative + "'");
+                            target = alternative;
+                            failure = null;
+                        }
+                        else
+                        {
+                            failure = retryFailure;
+                        }
+                    }
+                    if (failure != null)
+                    {
+                        TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + failure);
+                        return Result.Failed;
+                    }
+                    Log("built with the fallback C# writer: " + target);
                 }
-                target = built.Path;
             }
 
             ElementId instanceId;
@@ -1196,9 +1233,30 @@ namespace IvanTools
                 return Result.Failed;
             }
 
+            if (usedFallback)
+                engine = "built-in C# writer";
             Log("linked with engine " + engine + ", element " + instanceId.IntegerValue);
-            ShowReport(document, target, built, instanceId, engine, reuse);
+            ShowReport(document, target, built, fallbackStats, instanceId, engine, reuse);
             return Result.Succeeded;
+        }
+
+        /// <summary>Fallback: the built-in C# writer (.pts only, kept as a reference).</summary>
+        private static string BuildWithCSharp(string input, string target, out BuildStats stats)
+        {
+            stats = null;
+            try
+            {
+                CloudPoint[] points = PtsReader.Read(input);
+                if (points.Length == 0)
+                    return "The source contains no points.";
+                byte[] bytes = RcsWriter.Build(points, new BuildOptions(), out stats);
+                File.WriteAllBytes(target, bytes);
+                return null;
+            }
+            catch (Exception error)
+            {
+                return error.Message;
+            }
         }
 
         /// <summary>Load rcsconv.dll, asking for its path once when it is not found.</summary>
@@ -1568,7 +1626,8 @@ namespace IvanTools
         }
 
         private static void ShowReport(Document document, string path, DllResult built,
-                                       ElementId instanceId, string engine, bool reused)
+                                       BuildStats fallbackStats, ElementId instanceId,
+                                       string engine, bool reused)
         {
             string text = "File: " + path + Environment.NewLine +
                           "Element id: " + instanceId.IntegerValue + Environment.NewLine +
@@ -1582,6 +1641,14 @@ namespace IvanTools
                 text += string.Format(CultureInfo.InvariantCulture,
                     Environment.NewLine + "Points: {0}; tiles: {1}; depth: {2}",
                     built.Points, built.Tiles, built.Depth);
+            }
+            else if (fallbackStats != null)
+            {
+                text += string.Format(CultureInfo.InvariantCulture,
+                    Environment.NewLine + "Points: {0}; tiles: {1}; depth: {2}",
+                    fallbackStats.Points, fallbackStats.Tiles, fallbackStats.Depth);
+                text += Environment.NewLine +
+                    "Built-in writer: the cloud was buffered in memory.";
             }
             Element instance = document.GetElement(instanceId);
             BoundingBoxXYZ box = instance == null ? null : instance.get_BoundingBox(null);

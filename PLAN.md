@@ -328,3 +328,8 @@ English-only phase onward the journal is kept here in English.
   behaviour, `-f/--force` stays accepted for compatibility. The GUI checkbox is
   checked by default. Python reference tools are unchanged (they still need `-f`).
   Tests: `existing_output_is_overwritten_by_default`, `no_overwrite_flag_skips_existing`.
+- **Release prep** - kept the C# writer as a permanent fallback: if `rcsconv.dll`
+  is absent, `.pts` still converts in-process (`Engine: built-in C# writer`), while
+  `.las`/`.laz` ask for the DLL. Cleaned `.gitignore` and README (73 Rust tests),
+  the release workflow now ships `rcsconv.dll` and the `revit/` sources and runs the
+  tests under the GNU host.

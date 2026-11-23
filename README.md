@@ -118,7 +118,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\revit\run-tests.ps1
 The C# writer is verified byte for byte against the Rust converter on
 `probe6`, `test1`, `test2`, `level_7` (324,680 points), `level_7_n19099`,
 `attic_south_west` (3,953,680 points, 79.5 MB), `entrance` and `roof_1_stairwell`.
-The plugin converts `.pts`, `.las` and `.laz` through `rcsconv.dll` (built by `cargo build --release`), links the result into the model and saves under a free name when Revit keeps the old `.rcs` open. Use the command dialog's "Save as" to choose the path.
+The plugin converts `.pts`, `.las` and `.laz` through `rcsconv.dll` (built by `cargo build --release`), links the result into the model and saves under a free name when Revit keeps the old `.rcs` open. If the DLL is missing, `.pts` still converts with the built-in C# writer (fallback); `.las`/`.laz` need the DLL. Use the command dialog's "Save as" to choose the path.
 
 ### Toolchain: portable installation, no `rustup`
 
@@ -141,7 +141,7 @@ Machine variables (they apply to all users and to new processes):
 ```
 
 Check after installation: `rustc -vV` -> `host: x86_64-pc-windows-gnu`,
-`rustc --print sysroot` -> `C:\rust`, `cargo test --workspace --offline` -> 71 passed
+`rustc --print sysroot` -> `C:\rust`, `cargo test --workspace --offline` -> 73 passed
 (offline works thanks to the copied cache). `rust-toolchain.toml`
 (`channel = "stable"`) is read only by `rustup` — without it the file is inert, but
 CI needs it (Ubuntu installs `rustup` itself).
@@ -235,5 +235,5 @@ git, and is cleaned with `cargo clean`.
 ```powershell
 cd rust
 cargo build --release      # -> rcsconv.exe, rcsconv-gui.exe, rcsconv.dll (static CRT)
-cargo test                 # crate and GUI-logic tests (71)
+cargo test                 # crate and GUI-logic tests (73)
 ```

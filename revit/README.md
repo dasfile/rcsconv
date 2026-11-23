@@ -12,7 +12,9 @@ A thin Revit 2023 add-in that builds a ReCap `.rcs` **itself** (no ReCap, no
 
 ## Current state
 
-- The command converts through `rcsconv.dll` (`.pts`, `.las`, `.laz`); the DLL is
+- The command converts through `rcsconv.dll` (`.pts`, `.las`, `.laz`); if the DLL is
+  missing, `.pts` falls back to the built-in C# writer (the dialog reports
+  `Engine: built-in C# writer`), while `.las`/`.laz` need the DLL. The DLL is
   built by `cargo build --release` and located once with "Locate rcsconv.dll...".
 - The C# writer (`.pts` -> `.rcs`) is **deprecated** but verified byte for byte against the Rust converter on
   `probe6`, `test1`, `test2`, `level_7` (324,680 points), `level_7_n19099`,

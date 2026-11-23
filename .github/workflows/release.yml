@@ -28,7 +28,7 @@ jobs:
           echo "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
 
       - name: Run tests
-        run: cargo test --workspace --manifest-path rust/Cargo.toml
+        run: cargo test --workspace --target x86_64-pc-windows-gnu --manifest-path rust/Cargo.toml
 
       - name: Build release
         run: cargo build --release --target x86_64-pc-windows-gnu --manifest-path rust/Cargo.toml
@@ -41,8 +41,11 @@ jobs:
           New-Item -ItemType Directory -Force $dist | Out-Null
           Copy-Item "rust/target/x86_64-pc-windows-gnu/release/rcsconv.exe" $dist
           Copy-Item "rust/target/x86_64-pc-windows-gnu/release/rcsconv-gui.exe" $dist
+          Copy-Item "rust/target/x86_64-pc-windows-gnu/release/rcsconv.dll" $dist
+          New-Item -ItemType Directory $dist/revit | Out-Null
+          Copy-Item revit/RcsConvRevit.cs, revit/README.md $dist/revit
           Copy-Item LICENSE, README.md $dist
-          Get-FileHash "$dist/*.exe" -Algorithm SHA256 |
+          Get-FileHash "$dist/rcsconv.exe", "$dist/rcsconv-gui.exe", "$dist/rcsconv.dll" -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
             Set-Content "$dist/SHA256SUMS.txt"
           Compress-Archive -Path "$dist/*" -DestinationPath "$dist.zip"
