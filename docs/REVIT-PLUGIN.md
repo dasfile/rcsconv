@@ -63,6 +63,8 @@ why the pair is always tested together. On total failure the dialog lists every
 registered engine and the per-engine error, and the same text goes to
 `%TEMP%\RcsConvRevit.log`.
 
+**CONFIRMED (Revit 2023, successful run):** the working identifier is **`rcs`**; `attic_entrance.pts` (962,000 points) was linked, the bbox matched and the dialog reported `Engine: rcs`.
+
 **CONFIRMED (Revit 2023, first run):** `PointCloudEngineRegistry.IsEngineFileBased(identifier)`
 throws `ArgumentException: This engine type has not been registered. Parameter
 name: identifier` for some identifiers that `GetSupportedEngines()` itself returns
@@ -101,18 +103,23 @@ mantissa and exponent and rounds with 64-bit integer arithmetic.
 1. Pick `.pts` or `.las` (`.laz` is rejected with an explanation).
 2. Read the points (`PtsReader`: 3–7 columns, count header skipped, intensity
    optional, values clamped to 0..255).
-3. Build the `.rcs` into
-   `%LOCALAPPDATA%\rcsconv\cache\<name>-<size>-<mtime>.rcs`. The name includes the
-   input size and timestamp, so a changed input produces a new file and a file
-   locked by Revit never blocks a rebuild.
-4. Create or reuse a `PointCloudType` for that path (compared via
+3. Pick the **output folder** with the native shell dialog (`SHBrowseForFolderW`,
+   no WinForms). It starts in the last used folder, otherwise next to the model
+   (`.rvt`), otherwise next to the input; the folder is remembered in
+   `HKCU\Software\rcsconv\revit\last_dir`.
+4. The result is `<input name>.rcs` in that folder. If the file exists, the
+   command offers to use the existing file (when it is newer than the input) or
+   to rebuild it; a file locked by Revit produces a clear message, not a crash.
+5. Read the points (`PtsReader`: 3–7 columns, count header skipped, intensity
+   optional, values clamped to 0..255) and build the `.rcs`.
+6. Create or reuse a `PointCloudType` for that path (compared via
    `Path.GetFullPath`, case-insensitive) and create a `PointCloudInstance` with
    `Transform.Identity` inside a transaction.
-5. Report the element id, the point/tile statistics and the bbox in metres; a
-   command link opens the cache folder.
+7. Report the path, element id, engine, point/tile statistics and the bbox in
+   metres; a command link opens the folder with the file.
 
-The `.rcs` stays referenced by the model: the cache folder must stay in place, or
-the cloud has to be relinked after clearing it.
+The `.rcs` stays referenced by the model: the chosen folder must stay in place, or
+the cloud has to be relinked after the file is moved or deleted.
 
 ## 5. Scope
 
@@ -144,6 +151,6 @@ the cloud has to be relinked after clearing it.
 | Question | How to resolve |
 |---|---|
 | Exact `engineIdentifier` for `.rcs` in this Revit build | `RcsConvProbe` output; record it in section 2 |
-| How Revit treats a regenerated `.rcs` at the same path | the cache name changes per input; a manual "Reload" in Manage Links is the fallback |
+| How Revit treats a regenerated `.rcs` at the same path | the command offers rebuild/reuse; if the file is locked by Revit, choose another folder or close the document |
 | Does `PointCloudInstance.Create` need a specific view or level | checked in the probe; the API takes no view |
 | `.las` point formats actually used by the owner's pipeline | test with `.las` produced from `golden/*.laz` |

@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Runtime.InteropServices;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -920,6 +921,7 @@ namespace IvanTools
                 TaskDialog.Show(Caption, "No active document.");
                 return Result.Cancelled;
             }
+            Document document = uidoc.Document;
 
             string input = PickInput();
             if (input == null)
@@ -944,46 +946,76 @@ namespace IvanTools
                 return Result.Cancelled;
             }
 
-            CloudPoint[] points;
-            try
-            {
-                points = PtsReader.Read(input);
-            }
-            catch (Exception error)
-            {
-                TaskDialog.Show(Caption, "Cannot read the input:\n\n" + error.Message);
-                return Result.Failed;
-            }
-            if (points.Length == 0)
-            {
-                TaskDialog.Show(Caption, "The source contains no points.");
+            // Ask for the output folder BEFORE reading the cloud: cancelling the
+            // dialog must not cost a conversion.
+            string folder = FolderPicker.Show(
+                commandData.Application.MainWindowHandle,
+                "Select the folder for the .rcs file",
+                SuggestFolder(input, document));
+            if (string.IsNullOrEmpty(folder))
                 return Result.Cancelled;
+            SaveLastDir(folder);
+
+            string target = Path.Combine(folder,
+                Path.GetFileNameWithoutExtension(input) + ".rcs");
+            Log("input: " + input);
+            Log("target: " + target);
+
+            BuildStats stats = null;
+            bool reuse = false;
+            if (File.Exists(target))
+            {
+                bool newer = File.GetLastWriteTimeUtc(target) >= File.GetLastWriteTimeUtc(input);
+                ExistingChoice choice = AskExisting(target, newer);
+                if (choice == ExistingChoice.Cancel)
+                    return Result.Cancelled;
+                reuse = choice == ExistingChoice.Reuse;
             }
 
-            string cache;
-            BuildStats stats = null;
-            try
+            if (!reuse)
             {
-                cache = CachePath(input);
-                Directory.CreateDirectory(Path.GetDirectoryName(cache));
-                if (!File.Exists(cache))
+                CloudPoint[] points;
+                try
                 {
-                    BuildOptions options = new BuildOptions();
-                    byte[] bytes = RcsWriter.Build(points, options, out stats);
-                    File.WriteAllBytes(cache, bytes);
+                    points = PtsReader.Read(input);
                 }
-            }
-            catch (Exception error)
-            {
-                TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + error.Message);
-                return Result.Failed;
+                catch (Exception error)
+                {
+                    TaskDialog.Show(Caption, "Cannot read the input:\n\n" + error.Message);
+                    return Result.Failed;
+                }
+                if (points.Length == 0)
+                {
+                    TaskDialog.Show(Caption, "The source contains no points.");
+                    return Result.Cancelled;
+                }
+
+                try
+                {
+                    byte[] bytes = RcsWriter.Build(points, new BuildOptions(), out stats);
+                    File.WriteAllBytes(target, bytes);
+                }
+                catch (IOException error)
+                {
+                    Log("write failed: " + error);
+                    TaskDialog.Show(Caption,
+                        "Cannot write the .rcs file:\n\n" + target + "\n\n" + error.Message +
+                        "\n\nIf Revit already links this file, close the document " +
+                        "or choose another folder.");
+                    return Result.Failed;
+                }
+                catch (Exception error)
+                {
+                    TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + error.Message);
+                    return Result.Failed;
+                }
             }
 
             ElementId instanceId;
             string engine;
             try
             {
-                instanceId = LinkPointCloud(uidoc.Document, cache, out engine);
+                instanceId = LinkPointCloud(document, target, out engine);
             }
             catch (Exception error)
             {
@@ -992,8 +1024,8 @@ namespace IvanTools
                 return Result.Failed;
             }
 
-            Log("linked with engine '" + engine + "', element " + instanceId.IntegerValue);
-            ShowReport(uidoc.Document, cache, stats, instanceId, engine);
+            Log("linked with engine " + engine + ", element " + instanceId.IntegerValue);
+            ShowReport(document, target, stats, instanceId, engine, reuse);
             return Result.Succeeded;
         }
 
@@ -1012,17 +1044,6 @@ namespace IvanTools
             }
         }
 
-        /// <summary>Cache file name: input name, size and last write time make it unique.</summary>
-        private static string CachePath(string input)
-        {
-            FileInfo info = new FileInfo(input);
-            string name = string.Format(CultureInfo.InvariantCulture, "{0}-{1}-{2}.rcs",
-                Path.GetFileNameWithoutExtension(input), info.Length, info.LastWriteTimeUtc.Ticks);
-            string root = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "rcsconv", "cache");
-            return Path.Combine(root, name);
-        }
 
         /// <summary>
         /// Create the point cloud instance, trying every file-based engine until one
@@ -1182,6 +1203,159 @@ namespace IvanTools
             }
         }
 
+        private const string SettingsKey = @"Software\rcsconv\revit";
+
+        private static string LoadLastDir()
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key =
+                    Microsoft.Win32.Registry.CurrentUser.OpenSubKey(SettingsKey))
+                {
+                    if (key != null)
+                        return key.GetValue("last_dir") as string;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return null;
+        }
+
+        private static void SaveLastDir(string folder)
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key =
+                    Microsoft.Win32.Registry.CurrentUser.CreateSubKey(SettingsKey))
+                {
+                    if (key != null)
+                        key.SetValue("last_dir", folder);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        /// <summary>Last used folder, else the model folder, else the input folder.</summary>
+        private static string SuggestFolder(string input, Document document)
+        {
+            string last = LoadLastDir();
+            if (!string.IsNullOrEmpty(last) && Directory.Exists(last))
+                return last;
+            string model = document.PathName;
+            if (!string.IsNullOrEmpty(model))
+            {
+                string dir = Path.GetDirectoryName(model);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    return dir;
+            }
+            return Path.GetDirectoryName(Path.GetFullPath(input));
+        }
+
+        private enum ExistingChoice { Reuse, Rebuild, Cancel }
+
+        private static ExistingChoice AskExisting(string target, bool newerThanInput)
+        {
+            TaskDialog dialog = new TaskDialog(Caption);
+            dialog.MainInstruction = "The .rcs file already exists";
+            dialog.MainContent = target + Environment.NewLine + Environment.NewLine +
+                (newerThanInput
+                    ? "It is newer than the input, so it can be reused."
+                    : "It is older than the input, so rebuilding is recommended.");
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Use the existing file");
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Rebuild the .rcs");
+            dialog.CommonButtons = TaskDialogCommonButtons.Cancel;
+            TaskDialogResult result = dialog.Show();
+            if (result == TaskDialogResult.CommandLink1)
+                return ExistingChoice.Reuse;
+            if (result == TaskDialogResult.CommandLink2)
+                return ExistingChoice.Rebuild;
+            return ExistingChoice.Cancel;
+        }
+
+        /// <summary>Native "select folder" dialog (shell32): no WinForms dependency.</summary>
+        private static class FolderPicker
+        {
+            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+            private struct BROWSEINFOW
+            {
+                public IntPtr hwndOwner;
+                public IntPtr pidlRoot;
+                public IntPtr pszDisplayName;
+                public string lpszTitle;
+                public uint ulFlags;
+                public IntPtr lpfn;
+                public IntPtr lParam;
+                public int iImage;
+            }
+
+            private delegate int BrowseCallback(IntPtr hwnd, uint message, IntPtr lParam, IntPtr data);
+
+            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+            private static extern IntPtr SHBrowseForFolderW(ref BROWSEINFOW info);
+
+            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+            private static extern bool SHGetPathFromIDListW(IntPtr pidl, StringBuilder path);
+
+            [DllImport("ole32.dll")]
+            private static extern void CoTaskMemFree(IntPtr memory);
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            private static extern IntPtr SendMessageW(IntPtr hwnd, uint message, IntPtr wParam, string lParam);
+
+            private const uint BIF_RETURNONLYFSDIRS = 0x0001;
+            private const uint BIF_NEWDIALOGSTYLE = 0x0040;
+            private const uint BIF_EDITBOX = 0x0010;
+            private const uint BFFM_INITIALIZED = 1;
+            private const uint BFFM_SETSELECTIONW = 0x400 + 103;
+
+            // The shell calls the delegate while the dialog lives: keep it alive.
+            private static BrowseCallback _callback;
+            private static string _initial;
+
+            public static string Show(IntPtr owner, string title, string initial)
+            {
+                _initial = initial;
+                _callback = OnMessage;
+                IntPtr display = Marshal.AllocHGlobal(520);
+                try
+                {
+                    BROWSEINFOW info = new BROWSEINFOW();
+                    info.hwndOwner = owner;
+                    info.pidlRoot = IntPtr.Zero;
+                    info.pszDisplayName = display;
+                    info.lpszTitle = title;
+                    info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
+                    info.lpfn = Marshal.GetFunctionPointerForDelegate(_callback);
+                    IntPtr pidl = SHBrowseForFolderW(ref info);
+                    if (pidl == IntPtr.Zero)
+                        return null;
+                    try
+                    {
+                        StringBuilder path = new StringBuilder(1024);
+                        return SHGetPathFromIDListW(pidl, path) ? path.ToString() : null;
+                    }
+                    finally
+                    {
+                        CoTaskMemFree(pidl);
+                    }
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(display);
+                }
+            }
+
+            private static int OnMessage(IntPtr hwnd, uint message, IntPtr lParam, IntPtr data)
+            {
+                if (message == BFFM_INITIALIZED && !string.IsNullOrEmpty(_initial))
+                    SendMessageW(hwnd, BFFM_SETSELECTIONW, (IntPtr)1, _initial);
+                return 0;
+            }
+        }
+
         private static PointCloudType FindType(Document document, string fullPath)
         {
             FilteredElementCollector collector = new FilteredElementCollector(document);
@@ -1197,12 +1371,14 @@ namespace IvanTools
             return null;
         }
 
-        private static void ShowReport(Document document, string cache, BuildStats stats,
-                                       ElementId instanceId, string engine)
+        private static void ShowReport(Document document, string path, BuildStats stats,
+                                       ElementId instanceId, string engine, bool reused)
         {
-            string text = "File: " + cache + Environment.NewLine +
+            string text = "File: " + path + Environment.NewLine +
                           "Element id: " + instanceId.IntegerValue + Environment.NewLine +
                           "Engine: " + engine;
+            if (reused)
+                text += Environment.NewLine + "Reused the existing file (no rebuild).";
             if (stats != null)
             {
                 text += string.Format(CultureInfo.InvariantCulture,
@@ -1224,12 +1400,12 @@ namespace IvanTools
             TaskDialog dialog = new TaskDialog(Caption);
             dialog.MainInstruction = "Point cloud linked";
             dialog.MainContent = text;
-            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Open cache folder");
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Open folder");
             dialog.CommonButtons = TaskDialogCommonButtons.Close;
             if (dialog.Show() == TaskDialogResult.CommandLink1)
             {
                 System.Diagnostics.Process.Start("explorer.exe",
-                    "/select,\"" + cache + "\"");
+                    "/select,\"" + path + "\"");
             }
         }
     }

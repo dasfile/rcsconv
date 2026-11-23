@@ -181,9 +181,7 @@ settings (316,890 points, 316 tiles). The pair for reverse engineering is
       `attic_south_west.pts` (3,953,680 points, 79,524,955 bytes)
 - [x] R7.1 test harness: `revit/run-tests.ps1` builds `revit/tests/RcsWriterTests.cs`
       with `csc` and compares C# bytes with `rcsconv.exe` (no Revit needed)
-- [x] R7.3 (part): the command reads `.pts`, caches the `.rcs` by input
-      size+timestamp, creates/reuses `PointCloudType`, creates
-      `PointCloudInstance`, reports id/statistics/bbox
+- [x] R7.3 (part): the command reads `.pts`, asks for the output folder (native shell dialog), writes `<input>.rcs` there, creates/reuses `PointCloudType`, creates `PointCloudInstance`, reports id/statistics/bbox
 - [x] R7.0 probe: `revit/RcsConvProbe.cs` prints the engines, tries each file-based
       identifier and creates/deletes a probe instance
 - [ ] R7.2: `.las` reader in C# (binary LAS 1.2/1.4)
@@ -238,11 +236,16 @@ English-only phase onward the journal is kept here in English.
   so `3.6434999999999999` became `"3.6435"` and the extent moved by 1 mm. The writer
   now decomposes the double into mantissa/exponent and rounds with 64-bit integer
   arithmetic (halves to even), which matches Python exactly.
-- **R7.3 (part)** — command: pick `.pts`, cache the `.rcs` as
-  `%LOCALAPPDATA%\rcsconv\cache\<name>-<size>-<mtime>.rcs`, reuse or create
-  `PointCloudType`, create `PointCloudInstance` in a transaction, report
+- **R7.3 (part)** — command: pick `.pts`, ask for the output folder with the
+  native shell dialog (`SHBrowseForFolderW`), write `<input>.rcs` there, reuse or
+  create `PointCloudType`, create `PointCloudInstance` in a transaction, report
   id/points/tiles/bbox. Both `.cs` files compile with `csc /warn:4` with no warnings.
-  Pending: the owner's run in Revit (probe + real command), `.las`, packaging.
+- **R7.3 success in Revit** — the owner linked `attic_entrance.pts` (962,000 points):
+  bbox `(-4.794, -6.338, -2.483) - (4.796, 6.338, 2.485)`, element 2722,
+  `Engine: rcs` — the identifier is confirmed. The temporary cache folder was
+  removed on the owner's request: the folder is chosen in the command dialog and
+  remembered in `HKCU\Software\rcsconv\revit\last_dir`; an existing file can
+  be reused or rebuilt. Pending: `.las`, packaging.
 - **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
   instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
   Revit assemblies plus assemblies already loaded in the Revit process, so a
