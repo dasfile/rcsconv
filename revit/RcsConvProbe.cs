@@ -66,77 +66,86 @@ namespace IvanTools
             report.AppendLine();
             report.AppendLine("File: " + fullPath);
 
-            // Try the engines in the order Revit reports them; the first success wins.
+            // Try each file-based engine with BOTH Create calls: a type can be created by
+            // an engine that then refuses to make an instance, which is exactly the
+            // failure seen with the wrong identifier. The first full success wins.
             PointCloudType type = null;
+            PointCloudInstance instance = null;
             string usedEngine = null;
             List<string> failures = new List<string>();
-            using (Transaction transaction = new Transaction(uidoc.Document, "Point cloud probe"))
+
+            foreach (string identifier in fileBased)
             {
-                transaction.Start();
-                foreach (string identifier in fileBased)
+                Transaction attempt = new Transaction(uidoc.Document, "Point cloud probe");
+                try
                 {
-                    try
-                    {
-                        type = PointCloudType.Create(uidoc.Document, identifier, fullPath);
-                        usedEngine = identifier;
-                        break;
-                    }
-                    catch (Exception error)
-                    {
-                        failures.Add(identifier + ": " + error.Message);
-                    }
+                    attempt.Start();
+                    PointCloudType candidate =
+                        PointCloudType.Create(uidoc.Document, identifier, fullPath);
+                    PointCloudInstance created =
+                        PointCloudInstance.Create(uidoc.Document, candidate.Id, Transform.Identity);
+                    attempt.Commit();
+                    type = candidate;
+                    instance = created;
+                    usedEngine = identifier;
+                    break;
                 }
-
-                if (type == null)
+                catch (Exception error)
                 {
-                    transaction.RollBack();
-                    report.AppendLine("PointCloudType.Create failed for every file-based engine:");
-                    foreach (string failure in failures)
-                        report.AppendLine("  " + failure);
-                    TaskDialog.Show(Caption, report.ToString());
-                    return Result.Failed;
+                    failures.Add(identifier + ": " + error.Message);
+                    if (attempt.GetStatus() == TransactionStatus.Started)
+                        attempt.RollBack();
                 }
-
-                report.AppendLine("Engine identifier: " + usedEngine);
-                report.AppendLine("Type id: " + type.Id.IntegerValue);
-                report.AppendLine("GetPath(): " +
-                    ModelPathUtils.ConvertModelPathToUserVisiblePath(type.GetPath()));
-                report.AppendLine("FoundStatus: " + type.FoundStatus);
-
-                PointCloudInstance instance = PointCloudInstance.Create(
-                    uidoc.Document, type.Id, Transform.Identity);
-                report.AppendLine("Instance id: " + instance.Id.IntegerValue);
-
-                BoundingBoxXYZ box = instance.get_BoundingBox(null);
-                if (box != null)
+                finally
                 {
-                    report.AppendFormat(CultureInfo.InvariantCulture,
-                        "BBox (m): ({0:0.###}, {1:0.###}, {2:0.###}) - ({3:0.###}, {4:0.###}, {5:0.###}){6}",
-                        box.Min.X * 0.3048, box.Min.Y * 0.3048, box.Min.Z * 0.3048,
-                        box.Max.X * 0.3048, box.Max.Y * 0.3048, box.Max.Z * 0.3048,
-                        Environment.NewLine);
+                    attempt.Dispose();
                 }
-                IList<string> scans = instance.GetScans();
-                report.AppendLine("Scans: " + (scans == null ? 0 : scans.Count));
+            }
 
-                transaction.Commit();
+            if (instance == null)
+            {
+                report.AppendLine();
+                report.AppendLine("No engine accepted the file. Attempts:");
+                foreach (string failure in failures)
+                    report.AppendLine("  " + failure);
+                TaskDialog.Show(Caption, report.ToString());
+                return Result.Failed;
+            }
 
-                TaskDialog dialog = new TaskDialog(Caption);
-                dialog.MainInstruction = "Point cloud created";
-                dialog.MainContent = report.ToString();
-                dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Delete the probe elements");
-                dialog.CommonButtons = TaskDialogCommonButtons.Close;
-                bool delete = dialog.Show() == TaskDialogResult.CommandLink1;
+            report.AppendLine("Engine identifier: " + usedEngine);
+            report.AppendLine("Type id: " + type.Id.IntegerValue);
+            report.AppendLine("GetPath(): " +
+                ModelPathUtils.ConvertModelPathToUserVisiblePath(type.GetPath()));
+            report.AppendLine("FoundStatus: " + type.FoundStatus);
+            report.AppendLine("Instance id: " + instance.Id.IntegerValue);
 
-                if (delete)
+            BoundingBoxXYZ box = instance.get_BoundingBox(null);
+            if (box != null)
+            {
+                report.AppendFormat(CultureInfo.InvariantCulture,
+                    "BBox (m): ({0:0.###}, {1:0.###}, {2:0.###}) - ({3:0.###}, {4:0.###}, {5:0.###}){6}",
+                    box.Min.X * 0.3048, box.Min.Y * 0.3048, box.Min.Z * 0.3048,
+                    box.Max.X * 0.3048, box.Max.Y * 0.3048, box.Max.Z * 0.3048,
+                    Environment.NewLine);
+            }
+            IList<string> scans = instance.GetScans();
+            report.AppendLine("Scans: " + (scans == null ? 0 : scans.Count));
+
+            TaskDialog dialog = new TaskDialog(Caption);
+            dialog.MainInstruction = "Point cloud created";
+            dialog.MainContent = report.ToString();
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Delete the probe elements");
+            dialog.CommonButtons = TaskDialogCommonButtons.Close;
+            bool delete = dialog.Show() == TaskDialogResult.CommandLink1;
+
+            if (delete)
+            {
+                using (Transaction cleanup = new Transaction(uidoc.Document, "Point cloud probe cleanup"))
                 {
-                    using (Transaction cleanup = new Transaction(uidoc.Document, "Point cloud probe cleanup"))
-                    {
-                        cleanup.Start();
-                        uidoc.Document.Delete(instance.Id);
-                        uidoc.Document.Delete(type.Id);
-                        cleanup.Commit();
-                    }
+                    cleanup.Start();
+                    uidoc.Document.Delete(instance.Id);
+                    uidoc.Document.Delete(type.Id);
+                    cleanup.Commit();
                 }
             }
             return Result.Succeeded;

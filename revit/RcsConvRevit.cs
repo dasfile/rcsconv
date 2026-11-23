@@ -980,17 +980,20 @@ namespace IvanTools
             }
 
             ElementId instanceId;
+            string engine;
             try
             {
-                instanceId = LinkPointCloud(uidoc.Document, cache);
+                instanceId = LinkPointCloud(uidoc.Document, cache, out engine);
             }
             catch (Exception error)
             {
+                Log("link failed: " + error);
                 TaskDialog.Show(Caption, "Cannot link the point cloud:\n\n" + error.Message);
                 return Result.Failed;
             }
 
-            ShowReport(uidoc.Document, cache, stats, instanceId);
+            Log("linked with engine '" + engine + "', element " + instanceId.IntegerValue);
+            ShowReport(uidoc.Document, cache, stats, instanceId, engine);
             return Result.Succeeded;
         }
 
@@ -1021,41 +1024,155 @@ namespace IvanTools
             return Path.Combine(root, name);
         }
 
-        /// <summary>Create the point cloud instance (or reuse an existing type).</summary>
-        private static ElementId LinkPointCloud(Document document, string path)
+        /// <summary>
+        /// Create the point cloud instance, trying every file-based engine until one
+        /// accepts the file. The identifier is reported back to the caller.
+        /// </summary>
+        private static ElementId LinkPointCloud(Document document, string path, out string engine)
         {
             string fullPath = Path.GetFullPath(path);
-            string engine = ResolveEngine();
-            PointCloudType type = FindType(document, fullPath);
+            List<string> candidates = CandidateEngines();
+            List<string> failures = new List<string>();
 
-            using (Transaction transaction = new Transaction(document, "Link point cloud"))
+            // An existing type already carries its working engine identifier.
+            PointCloudType existing = FindType(document, fullPath);
+            if (existing != null)
             {
-                transaction.Start();
-                if (type == null)
-                    type = PointCloudType.Create(document, engine, fullPath);
-                PointCloudInstance instance = PointCloudInstance.Create(document, type.Id, Transform.Identity);
-                transaction.Commit();
-                return instance.Id;
+                using (Transaction transaction = new Transaction(document, "Link point cloud"))
+                {
+                    transaction.Start();
+                    PointCloudInstance instance =
+                        PointCloudInstance.Create(document, existing.Id, Transform.Identity);
+                    transaction.Commit();
+                    engine = existing.EngineIdentifier;
+                    return instance.Id;
+                }
+            }
+
+            foreach (string identifier in candidates)
+            {
+                Transaction transaction = new Transaction(document, "Link point cloud");
+                try
+                {
+                    transaction.Start();
+                    PointCloudType type = PointCloudType.Create(document, identifier, fullPath);
+                    PointCloudInstance instance =
+                        PointCloudInstance.Create(document, type.Id, Transform.Identity);
+                    transaction.Commit();
+                    engine = identifier;
+                    return instance.Id;
+                }
+                catch (Exception error)
+                {
+                    failures.Add(identifier + ": " + error.Message);
+                    Log("engine '" + identifier + "' failed: " + error.Message);
+                    if (transaction.GetStatus() == TransactionStatus.Started)
+                        transaction.RollBack();
+                }
+                finally
+                {
+                    transaction.Dispose();
+                }
+            }
+
+            engine = null;
+            throw new InvalidOperationException(BuildEngineReport(candidates, failures));
+        }
+
+        /// <summary>
+        /// File-based engines in the order they should be tried: the ReCap engine first,
+        /// then anything that looks like it, then the rest.
+        /// </summary>
+        private static List<string> CandidateEngines()
+        {
+            IList<string> all =
+                Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.GetSupportedEngines();
+            List<string> fileBased = new List<string>();
+            foreach (string identifier in all)
+            {
+                if (Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.IsEngineFileBased(identifier))
+                    fileBased.Add(identifier);
+            }
+
+            List<string> ordered = new List<string>();
+            AddExact(ordered, fileBased, "rcs");
+            AddExact(ordered, fileBased, "recap");
+            foreach (string identifier in fileBased)
+            {
+                if (identifier.IndexOf("rcap", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    identifier.IndexOf("rcs", StringComparison.OrdinalIgnoreCase) >= 0)
+                    AddUnique(ordered, identifier);
+            }
+            foreach (string identifier in fileBased)
+                AddUnique(ordered, identifier);
+            return ordered;
+        }
+
+        private static void AddExact(List<string> ordered, List<string> engines, string wanted)
+        {
+            foreach (string identifier in engines)
+            {
+                if (string.Equals(identifier, wanted, StringComparison.OrdinalIgnoreCase))
+                    AddUnique(ordered, identifier);
             }
         }
 
-        /// <summary>The point cloud engine that handles .rcs files (Revit ships it).</summary>
-        private static string ResolveEngine()
+        private static void AddUnique(List<string> ordered, string identifier)
         {
-            IList<string> engines = Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.GetSupportedEngines();
-            string fallback = null;
-            foreach (string identifier in engines)
+            foreach (string existing in ordered)
             {
-                if (!Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.IsEngineFileBased(identifier))
-                    continue;
-                if (fallback == null)
-                    fallback = identifier;
-                if (identifier.IndexOf("rcs", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return identifier;
+                if (string.Equals(existing, identifier, StringComparison.OrdinalIgnoreCase))
+                    return;
             }
-            if (fallback == null)
-                throw new InvalidOperationException("No file-based point cloud engine is registered in Revit.");
-            return fallback;
+            ordered.Add(identifier);
+        }
+
+        /// <summary>Failure text with the engine list, so the next run needs no guessing.</summary>
+        private static string BuildEngineReport(List<string> candidates, List<string> failures)
+        {
+            StringBuilder text = new StringBuilder();
+            text.AppendLine("No point cloud engine accepted the .rcs file.");
+            text.AppendLine();
+            text.AppendLine("Registered engines:");
+            IList<string> all =
+                Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.GetSupportedEngines();
+            foreach (string identifier in all)
+            {
+                bool fileBased =
+                    Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.IsEngineFileBased(identifier);
+                text.AppendFormat(CultureInfo.InvariantCulture, "  {0} (file based: {1}){2}",
+                    identifier, fileBased, Environment.NewLine);
+            }
+            text.AppendLine();
+            if (candidates.Count == 0)
+            {
+                text.AppendLine("There are no file-based engines, so a .rcs cannot be linked.");
+            }
+            else
+            {
+                text.AppendLine("Attempts:");
+                foreach (string failure in failures)
+                    text.AppendLine("  " + failure);
+            }
+            return text.ToString();
+        }
+
+        /// <summary>Append a line to %TEMP%\RcsConvRevit.log; never throws.</summary>
+        private static void Log(string message)
+        {
+            try
+            {
+                string path = Path.Combine(Path.GetTempPath(), "RcsConvRevit.log");
+                using (StreamWriter writer = new StreamWriter(path, true, Encoding.UTF8))
+                {
+                    writer.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                        "{0:yyyy-MM-dd HH:mm:ss} {1}", DateTime.Now, message));
+                }
+            }
+            catch (Exception)
+            {
+                // diagnostics must never break the command
+            }
         }
 
         private static PointCloudType FindType(Document document, string fullPath)
@@ -1073,10 +1190,12 @@ namespace IvanTools
             return null;
         }
 
-        private static void ShowReport(Document document, string cache, BuildStats stats, ElementId instanceId)
+        private static void ShowReport(Document document, string cache, BuildStats stats,
+                                       ElementId instanceId, string engine)
         {
             string text = "File: " + cache + Environment.NewLine +
-                          "Element id: " + instanceId.IntegerValue;
+                          "Element id: " + instanceId.IntegerValue + Environment.NewLine +
+                          "Engine: " + engine;
             if (stats != null)
             {
                 text += string.Format(CultureInfo.InvariantCulture,

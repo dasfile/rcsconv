@@ -52,6 +52,16 @@ PointCloudInstance instance = PointCloudInstance.Create(document, type.Id, Trans
 then creates and (optionally) deletes a probe instance. Run it once in Revit and
 record the identifier here.
 
+**Engine selection (implemented).** The identifier is never guessed: both the
+command and the probe try the file-based engines in a priority order (`rcs`,
+`ReCap`, then any identifier containing `rcap`/`rcs`, then the rest) and call
+**both** `PointCloudType.Create` and `PointCloudInstance.Create` inside a separate
+transaction per attempt; a failed attempt is rolled back and the next engine is
+tried. An engine may create a type and then refuse an instance (`This engine type
+has not been registered`), which is why the pair is always tested together. On
+total failure the dialog lists every registered engine and the per-engine error,
+and the same text goes to `%TEMP%\RcsConvRevit.log`.
+
 ## 3. Writer (C#) — verified without Revit
 
 `RcsConv.Core.RcsWriter.Build(points, options, out stats)` implements the

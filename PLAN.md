@@ -248,3 +248,13 @@ English-only phase onward the journal is kept here in English.
   Revit assemblies plus assemblies already loaded in the Revit process, so a
   WinForms dependency is a compile-time risk. No WinForms reference remains; the
   test harness builds with Revit assemblies only and the byte parity did not change.
+- **R7.3 first Revit run** — the owner ran the command in Revit 2023 on
+  `attic_entrance.pts` (962,000 points): the conversion took about 10 s and
+  succeeded, linking failed with `This engine type has not been registered.
+  Parameter name: identifier` (thrown by the native `PointCloudAccess.dll`). The
+  guessed engine identifier was wrong. Fix: both the command and the probe now try
+  every file-based engine in priority order and test `PointCloudType.Create` **and**
+  `PointCloudInstance.Create` in one transaction per attempt (an engine can create a
+  type and then refuse an instance), rolling back on failure. The success dialog
+  reports the engine; a total failure lists all engines, the per-engine error and is
+  also written to `%TEMP%\RcsConvRevit.log`.
