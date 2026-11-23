@@ -1080,35 +1080,34 @@ namespace IvanTools
         }
 
         /// <summary>
-        /// File-based engines in the order they should be tried: the ReCap engine first,
-        /// then anything that looks like it, then the rest.
+        /// Engines in the order they should be tried: the ReCap engine first, then
+        /// anything that looks like it, then the rest. Every identifier reported by the
+        /// registry is kept: filtering with IsEngineFileBased is NOT safe here - for
+        /// some identifiers that very call throws "This engine type has not been
+        /// registered", so the flag is only used for reporting, never for filtering.
         /// </summary>
         private static List<string> CandidateEngines()
         {
             IList<string> all =
                 Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.GetSupportedEngines();
-            List<string> fileBased = new List<string>();
-            foreach (string identifier in all)
-            {
-                if (Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.IsEngineFileBased(identifier))
-                    fileBased.Add(identifier);
-            }
-
             List<string> ordered = new List<string>();
-            AddExact(ordered, fileBased, "rcs");
-            AddExact(ordered, fileBased, "recap");
-            foreach (string identifier in fileBased)
+            AddExact(ordered, all, "rcs");
+            AddExact(ordered, all, "recap");
+            foreach (string identifier in all)
             {
                 if (identifier.IndexOf("rcap", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     identifier.IndexOf("rcs", StringComparison.OrdinalIgnoreCase) >= 0)
                     AddUnique(ordered, identifier);
             }
-            foreach (string identifier in fileBased)
+            foreach (string identifier in all)
                 AddUnique(ordered, identifier);
+            string[] names = new string[ordered.Count];
+            ordered.CopyTo(names);
+            Log("engines: " + string.Join(", ", names));
             return ordered;
         }
 
-        private static void AddExact(List<string> ordered, List<string> engines, string wanted)
+        private static void AddExact(List<string> ordered, IList<string> engines, string wanted)
         {
             foreach (string identifier in engines)
             {
@@ -1138,15 +1137,23 @@ namespace IvanTools
                 Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.GetSupportedEngines();
             foreach (string identifier in all)
             {
-                bool fileBased =
-                    Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.IsEngineFileBased(identifier);
+                string fileBased;
+                try
+                {
+                    fileBased = Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry
+                        .IsEngineFileBased(identifier) ? "true" : "false";
+                }
+                catch (Exception error)
+                {
+                    fileBased = "unknown (" + error.Message + ")";
+                }
                 text.AppendFormat(CultureInfo.InvariantCulture, "  {0} (file based: {1}){2}",
                     identifier, fileBased, Environment.NewLine);
             }
             text.AppendLine();
             if (candidates.Count == 0)
             {
-                text.AppendLine("There are no file-based engines, so a .rcs cannot be linked.");
+                text.AppendLine("The registry reported no engines, so a .rcs cannot be linked.");
             }
             else
             {

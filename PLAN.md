@@ -258,3 +258,10 @@ English-only phase onward the journal is kept here in English.
   type and then refuse an instance), rolling back on failure. The success dialog
   reports the engine; a total failure lists all engines, the per-engine error and is
   also written to `%TEMP%\RcsConvRevit.log`.
+- **R7.3 engine filter fix** — the second run failed before any engine was tried: the
+  log showed `PointCloudEngineRegistry.IsEngineFileBased()` itself throwing
+  `ArgumentException: This engine type has not been registered` for an identifier
+  returned by `GetSupportedEngines()`. The filter is removed: all reported
+  identifiers are candidates (ordered, ReCap first), `IsEngineFileBased` is used
+  only for the report inside `try/catch`, and the candidate list is logged before
+  the attempts.

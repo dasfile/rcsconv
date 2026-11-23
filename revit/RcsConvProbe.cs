@@ -43,19 +43,27 @@ namespace IvanTools
             StringBuilder report = new StringBuilder();
             report.AppendLine("Registered point cloud engines:");
             IList<string> engines = Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.GetSupportedEngines();
-            List<string> fileBased = new List<string>();
+            List<string> candidates = new List<string>();
             foreach (string identifier in engines)
             {
-                bool isFileBased =
-                    Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.IsEngineFileBased(identifier);
+                string isFileBased;
+                try
+                {
+                    isFileBased = Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry
+                        .IsEngineFileBased(identifier) ? "true" : "false";
+                }
+                catch (Exception error)
+                {
+                    isFileBased = "unknown (" + error.Message + ")";
+                }
                 report.AppendFormat(CultureInfo.InvariantCulture, "  {0}  (file based: {1}){2}",
                     identifier, isFileBased, Environment.NewLine);
-                if (isFileBased)
-                    fileBased.Add(identifier);
+                candidates.Add(identifier);
             }
-            if (fileBased.Count == 0)
+            if (candidates.Count == 0)
             {
-                TaskDialog.Show(Caption, report + Environment.NewLine + "No file-based engine: cannot link .rcs.");
+                TaskDialog.Show(Caption, report + Environment.NewLine +
+                    "The registry reported no engines, so a .rcs cannot be linked.");
                 return Result.Failed;
             }
 
@@ -74,7 +82,7 @@ namespace IvanTools
             string usedEngine = null;
             List<string> failures = new List<string>();
 
-            foreach (string identifier in fileBased)
+            foreach (string identifier in candidates)
             {
                 Transaction attempt = new Transaction(uidoc.Document, "Point cloud probe");
                 try

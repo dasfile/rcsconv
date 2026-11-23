@@ -53,14 +53,22 @@ then creates and (optionally) deletes a probe instance. Run it once in Revit and
 record the identifier here.
 
 **Engine selection (implemented).** The identifier is never guessed: both the
-command and the probe try the file-based engines in a priority order (`rcs`,
-`ReCap`, then any identifier containing `rcap`/`rcs`, then the rest) and call
-**both** `PointCloudType.Create` and `PointCloudInstance.Create` inside a separate
-transaction per attempt; a failed attempt is rolled back and the next engine is
-tried. An engine may create a type and then refuse an instance (`This engine type
-has not been registered`), which is why the pair is always tested together. On
-total failure the dialog lists every registered engine and the per-engine error,
-and the same text goes to `%TEMP%\RcsConvRevit.log`.
+command and the probe take **every** identifier reported by
+`GetSupportedEngines()`, order them (`rcs`, `ReCap`, then any identifier containing
+`rcap`/`rcs`, then the rest) and call **both** `PointCloudType.Create` and
+`PointCloudInstance.Create` inside a separate transaction per attempt; a failed
+attempt is rolled back and the next engine is tried. An engine may create a type
+and then refuse an instance (`This engine type has not been registered`), which is
+why the pair is always tested together. On total failure the dialog lists every
+registered engine and the per-engine error, and the same text goes to
+`%TEMP%\RcsConvRevit.log`.
+
+**CONFIRMED (Revit 2023, first run):** `PointCloudEngineRegistry.IsEngineFileBased(identifier)`
+throws `ArgumentException: This engine type has not been registered. Parameter
+name: identifier` for some identifiers that `GetSupportedEngines()` itself returns
+(stack: `PointCloudAccess!PointCloudEngineRegistry::isEngineFileBased_`). It must
+not be used to filter the candidate list; the flag is only for reporting, wrapped
+in `try/catch`.
 
 ## 3. Writer (C#) — verified without Revit
 
