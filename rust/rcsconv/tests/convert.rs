@@ -123,21 +123,58 @@ fn las2rcs_builds_level_7() {
 }
 
 #[test]
-fn existing_output_requires_force() {
+fn existing_output_is_overwritten_by_default() {
     let Some(source) = golden("probe6.pts") else {
         return;
     };
-    let out = temp_dir("force");
-    let args = [
+    let out = temp_dir("overwrite");
+    let source_text = source.to_str().expect("path");
+    let out_text = out.to_str().expect("path");
+    assert!(run(&["pts2rcs", source_text, "-o", out_text]).status.success(), "first run");
+    let target = out.join("probe6.rcs");
+    let first = std::fs::read(&target).expect("first file");
+
+    let output = run(&[
         "pts2rcs",
-        source.to_str().expect("path"),
+        source_text,
         "-o",
-        out.to_str().expect("path"),
-    ];
-    assert!(run(&args).status.success(), "first run");
-    let output = run(&args);
-    assert!(output.status.success(), "second run without -f");
+        out_text,
+        "-g",
+        "{11112233_4455_6677_8899_aabbccddeeff}",
+    ]);
+    assert!(output.status.success(), "second run: {output:?}");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(!text.contains("skipped"), "overwrite by default: {text}");
+    let second = std::fs::read(&target).expect("second file");
+    assert_ne!(first, second, "the file must be rewritten with the new GUID");
+    let _ = std::fs::remove_dir_all(out);
+}
+
+#[test]
+fn no_overwrite_flag_skips_existing() {
+    let Some(source) = golden("probe6.pts") else {
+        return;
+    };
+    let out = temp_dir("no-overwrite");
+    let source_text = source.to_str().expect("path");
+    let out_text = out.to_str().expect("path");
+    assert!(run(&["pts2rcs", source_text, "-o", out_text]).status.success(), "first run");
+    let target = out.join("probe6.rcs");
+    let first = std::fs::read(&target).expect("first file");
+
+    let output = run(&[
+        "pts2rcs",
+        source_text,
+        "-o",
+        out_text,
+        "--no-overwrite",
+        "-g",
+        "{11112233_4455_6677_8899_aabbccddeeff}",
+    ]);
+    assert!(output.status.success(), "skip run: {output:?}");
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("skipped"), "skip message: {text}");
+    let second = std::fs::read(&target).expect("second file");
+    assert_eq!(first, second, "--no-overwrite must not touch the file");
     let _ = std::fs::remove_dir_all(out);
 }

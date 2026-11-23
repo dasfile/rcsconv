@@ -80,6 +80,8 @@ impl Options {
     /// `las` — whether LAS/LAZ flags are allowed (`--units-scale`, `--recenter`, ...).
     pub fn parse(args: &[String], las: bool) -> Result<Options, ArgsError> {
         let mut options = Options::default();
+        // Overwrite by default; --no-overwrite restores the old skip behaviour.
+        options.force = true;
         let mut index = 0;
         while index < args.len() {
             let arg = args[index].clone();
@@ -98,6 +100,7 @@ impl Options {
                         .map_err(|_| ArgsError(format!("-m {text}: an integer is expected")))?;
                 }
                 "-f" | "--force" => options.force = true,
+                "--no-overwrite" | "--skip-existing" => options.force = false,
                 "-r" | "--recursive" => options.recursive = true,
                 "-g" | "--guid" => options.guid = Some(take(&arg)?),
                 "--in-memory" => options.in_memory = true,

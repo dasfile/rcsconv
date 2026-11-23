@@ -22,7 +22,8 @@ an existing file is not overwritten without -f.
 Common options:
   -o, --out-dir DIR              write here instead of next to the input
   -m, --max-points-per-tile N    tile limit, 1..65536 (default 65536)
-  -f, --force                    overwrite existing .rcs
+  -f, --force                    keep for compatibility (overwrite is the default)
+      --no-overwrite             skip an existing .rcs instead of overwriting
   -r, --recursive                walk subdirectories
   -g, --guid GUID                set GUID ({8_4_4_4_12}); default is random
       --in-memory                build in memory (reference writer, debug only)

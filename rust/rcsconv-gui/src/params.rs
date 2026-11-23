@@ -94,7 +94,7 @@ impl Default for Settings {
             guid: String::new(),
             color: true,
             intensity: true,
-            force: false,
+            force: true,
             recursive: false,
         }
     }

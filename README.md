@@ -52,8 +52,8 @@ python tools/rcp_info.py "golden/*.rcp"                     # import settings fr
 ```
 
 CLI rule: the first argument is the input (a file, directory or mask), the output
-name is derived (`<name>.rcs` / `<name>.pts`), and an existing file is not
-overwritten without `-f`. Write results to `out/`.
+name is derived (`<name>.rcs` / `<name>.pts`), and an existing file is
+**overwritten by default**; pass `--no-overwrite` to skip it. Write results to `out/`.
 
 Requirements: Python 3.11 + `numpy`. `laspy` (with the `laszip` or `lazrs`
 backend) is needed only for LAS/LAZ: `pip install -e ".[las]"`.
@@ -63,8 +63,8 @@ The Rust port builds without MSVC — it needs the GNU host
 not required):
 
 
-Ready-to-use `.exe` commands (same behaviour as the scripts: input is a file,
-directory or mask, output `<name>.rcs`, no overwrite without `-f`):
+Ready-to-use `.exe` commands (input is a file, directory or mask, output
+`<name>.rcs`, overwrite is the default; `--no-overwrite` skips an existing file):
 
 ```powershell
 rust\target\release\rcsconv.exe las2rcs golden\level_7.laz -o out

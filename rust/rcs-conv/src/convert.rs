@@ -61,7 +61,7 @@ impl Conversion {
                 None => format!("{} -> {}: written", self.source.display(), self.target.display()),
             },
             Status::Skipped => format!(
-                "{} -> {}: skipped (file exists, -f required)",
+                "{} -> {}: skipped (file exists, overwrite disabled)",
                 self.source.display(),
                 self.target.display()
             ),

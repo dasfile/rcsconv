@@ -323,3 +323,8 @@ English-only phase onward the journal is kept here in English.
   encoding. `attic_north.pts` 3.03 -> 1.35 s; 4M `.laz` in memory 8.35 -> 4.45 s;
   streaming 22.5 -> 18.25 s. Byte parity verified (`level_7.laz` hash unchanged).
 - **Plugin `.laz` filter** - `FileOpenDialog` now lists `*.pts;*.las;*.laz`.
+- **Overwrite by default** - the Rust CLI and the GUI now overwrite an existing
+  `.rcs` by default; `--no-overwrite` (`--skip-existing`) restores the old skip
+  behaviour, `-f/--force` stays accepted for compatibility. The GUI checkbox is
+  checked by default. Python reference tools are unchanged (they still need `-f`).
+  Tests: `existing_output_is_overwritten_by_default`, `no_overwrite_flag_skips_existing`.

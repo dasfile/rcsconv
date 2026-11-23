@@ -60,7 +60,7 @@ Status. Status values: `queued`, `running...`, `written`, `skipped`, `failed`,
 | GUID | `-g` | empty means random; validated before reading files |
 | Colour | `--no-color` (inverse) | read LAS colour |
 | Intensity | `--no-intensity` (inverse) | read LAS intensity |
-| Overwrite .rcs | `-f` | an existing `.rcs` is skipped without it |
+| Overwrite .rcs | `-f` | checked by default; when cleared an existing `.rcs` is skipped |
 | Include subfolders | `-r` | walk subdirectories when adding folders |
 
 Validation messages are the same strings the CLI prints, and they appear right in
