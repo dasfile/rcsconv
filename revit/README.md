@@ -39,6 +39,38 @@ A thin Revit 2023 add-in that builds a ReCap `.rcs` **itself** (no ReCap, no
 The files are ASCII/UTF-8 without BOM, LF line endings, one `IExternalCommand`
 class per file (the HotLoader rule).
 
+
+## Install as an add-in (no HotLoader)
+
+`build-addin.ps1` compiles `RcsConvRevit.dll`, copies `rcsconv.dll` next to it and
+packs the manifest:
+
+```powershell
+.\revit\build-addin.ps1
+```
+
+Result: `out/dist/rcsconv-revit-<version>.zip` containing
+
+```
+RcsConv.addin
+rcsconv/RcsConvRevit.dll
+rcsconv/rcsconv.dll
+rcsconv/README.md
+rcsconv/LICENSE
+```
+
+Unpack the **contents** into one of:
+
+```text
+%APPDATA%\Autodesk\Revit\Addins\2023      (current user)
+C:\ProgramData\Autodesk\Revit\Addins\2023 (all users)
+```
+
+Restart Revit: the command appears in **Add-Ins -> External Tools -> rcsconv -
+Point Cloud**. `rcsconv.dll` is found next to the add-in DLL, so no registry entry
+is needed. `AddInId` is fixed, so a newer version replaces the command instead of
+duplicating it.
+
 ## Tests without Revit
 
 ```powershell

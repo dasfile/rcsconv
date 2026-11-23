@@ -966,13 +966,24 @@ namespace IvanTools
 
         public static string Find()
         {
-            string[] candidates = new string[]
+            List<string> candidates = new List<string>();
+            candidates.Add(LoadDllPath());
+            candidates.Add(Environment.GetEnvironmentVariable(EnvName));
+            try
             {
-                LoadDllPath(),
-                Environment.GetEnvironmentVariable(EnvName),
-                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rcsconv.dll"),
-                System.IO.Path.Combine(Directory.GetCurrentDirectory(), "rcsconv.dll")
-            };
+                // Compiled add-in: rcsconv.dll sits next to RcsConvRevit.dll.
+                // CsHotLoader compiles in memory, so Location is empty there.
+                string location = System.Reflection.Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrEmpty(location))
+                    candidates.Add(System.IO.Path.Combine(
+                        System.IO.Path.GetDirectoryName(location), "rcsconv.dll"));
+            }
+            catch (Exception)
+            {
+            }
+            candidates.Add(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rcsconv.dll"));
+            candidates.Add(System.IO.Path.Combine(Directory.GetCurrentDirectory(), "rcsconv.dll"));
+
             foreach (string candidate in candidates)
             {
                 if (!string.IsNullOrEmpty(candidate) && File.Exists(candidate))

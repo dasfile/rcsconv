@@ -40,7 +40,7 @@ produced; `objdump -p` lists only system DLLs (no `libgcc_s_seh-1.dll`, no
 
 ## 4. Packaging
 
-The release archive contains:
+Two archives are published for a release.
 
 ```
 rcsconv-<version>-x86_64-pc-windows-gnu.zip
@@ -50,6 +50,14 @@ rcsconv-<version>-x86_64-pc-windows-gnu.zip
     LICENSE
     README.md
     SHA256SUMS.txt
+    revit/               (RcsConvRevit.cs + README for HotLoader)
+
+rcsconv-revit-<version>.zip        (built by revit/build-addin.ps1)
+    RcsConv.addin
+    rcsconv/RcsConvRevit.dll
+    rcsconv/rcsconv.dll
+    rcsconv/README.md
+    rcsconv/LICENSE
 ```
 
 Generate `SHA256SUMS.txt` from the two binaries and the archive itself.

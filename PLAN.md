@@ -333,3 +333,8 @@ English-only phase onward the journal is kept here in English.
   `.las`/`.laz` ask for the DLL. Cleaned `.gitignore` and README (73 Rust tests),
   the release workflow now ships `rcsconv.dll` and the `revit/` sources and runs the
   tests under the GNU host.
+- **Add-in packaging** - `revit/RcsConv.addin` (fixed AddInId), `revit/build-addin.ps1`
+  (csc -> RcsConvRevit.dll, rcsconv.dll next to it, zip in out/dist), and the plugin
+  now looks for `rcsconv.dll` next to its own assembly, so the add-in works without
+  registry settings. The CLI/GUI archive and the add-in archive are documented in
+  `docs/RELEASE.md`.

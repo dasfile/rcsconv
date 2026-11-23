@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Command">
+    <Name>rcsconv - Point Cloud</Name>
+    <FullClassName>IvanTools.RcsConvRevit</FullClassName>
+    <Assembly>.\rcsconv\RcsConvRevit.dll</Assembly>
+    <AddInId>5F3C2A7E-9B14-4C6D-8E2A-17D4B9C6F0A3</AddInId>
+    <VendorId>RODIONOV</VendorId>
+    <VendorDescription>Ivan Rodionov, Architectural Engineer</VendorDescription>
+    <ToolTip>Convert .pts/.las/.laz to ReCap .rcs and link it into the model.</ToolTip>
+  </AddIn>
+</RevitAddIns>
