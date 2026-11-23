@@ -996,15 +996,16 @@ namespace IvanTools
 
         private static string PickInput()
         {
-            using (System.Windows.Forms.OpenFileDialog dialog = new System.Windows.Forms.OpenFileDialog())
+            // Revit-native dialog: no System.Windows.Forms dependency, which matters for
+            // CsHotLoader (it references only Revit assemblies and already loaded ones).
+            using (FileOpenDialog dialog = new FileOpenDialog(
+                "Point cloud sources (*.pts;*.las)|*.pts;*.las"))
             {
                 dialog.Title = "Select a point cloud source";
-                dialog.Filter = "Point cloud sources (*.pts;*.las)|*.pts;*.las|" +
-                                "Leica text (*.pts)|*.pts|LAS files (*.las)|*.las|All files (*.*)|*.*";
-                dialog.CheckFileExists = true;
-                return dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK
-                    ? dialog.FileName
-                    : null;
+                if (dialog.Show() != ItemSelectionDialogResult.Confirmed)
+                    return null;
+                ModelPath path = dialog.GetSelectedModelPath();
+                return path == null ? null : ModelPathUtils.ConvertModelPathToUserVisiblePath(path);
             }
         }
 

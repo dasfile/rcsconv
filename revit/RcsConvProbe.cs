@@ -144,14 +144,13 @@ namespace IvanTools
 
         private static string PickRcs()
         {
-            using (System.Windows.Forms.OpenFileDialog dialog = new System.Windows.Forms.OpenFileDialog())
+            using (FileOpenDialog dialog = new FileOpenDialog("ReCap point cloud (*.rcs)|*.rcs"))
             {
                 dialog.Title = "Select a .rcs file for the probe";
-                dialog.Filter = "ReCap point cloud (*.rcs)|*.rcs|All files (*.*)|*.*";
-                dialog.CheckFileExists = true;
-                return dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK
-                    ? dialog.FileName
-                    : null;
+                if (dialog.Show() != ItemSelectionDialogResult.Confirmed)
+                    return null;
+                ModelPath path = dialog.GetSelectedModelPath();
+                return path == null ? null : ModelPathUtils.ConvertModelPathToUserVisiblePath(path);
             }
         }
     }

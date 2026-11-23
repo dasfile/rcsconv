@@ -243,3 +243,8 @@ English-only phase onward the journal is kept here in English.
   `PointCloudType`, create `PointCloudInstance` in a transaction, report
   id/points/tiles/bbox. Both `.cs` files compile with `csc /warn:4` with no warnings.
   Pending: the owner's run in Revit (probe + real command), `.las`, packaging.
+- **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
+  instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
+  Revit assemblies plus assemblies already loaded in the Revit process, so a
+  WinForms dependency is a compile-time risk. No WinForms reference remains; the
+  test harness builds with Revit assemblies only and the byte parity did not change.

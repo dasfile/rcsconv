@@ -21,7 +21,7 @@ probe), [`revit/tests/RcsWriterTests.cs`](../revit/tests/RcsWriterTests.cs)
 | Entry point | exactly **one** `public class : IExternalCommand` per file (HotLoader runs the first) |
 | External DLLs | **forbidden**: HotLoader references `RevitAPI.dll`, `RevitAPIUI.dll` and assemblies already loaded in the AppDomain |
 | Attributes | `[Transaction(TransactionMode.Manual)]`, `[Regeneration(RegenerationOption.Manual)]` |
-| UI | `TaskDialog`; `OpenFileDialog` for the input |
+| UI | `TaskDialog`; `FileOpenDialog` (Revit-native, no WinForms) for the input |
 
 C# 5 restrictions: no string interpolation, no pattern matching, no `?.`,
 `nameof`, `out var`, tuples, expression-bodied members or `default` literals.

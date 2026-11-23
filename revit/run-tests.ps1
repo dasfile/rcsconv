@@ -28,8 +28,7 @@ $references = @(
     (Join-Path $RevitDir "RevitAPI.dll"),
     (Join-Path $RevitDir "RevitAPIUI.dll"),
     (Join-Path $framework "System.dll"),
-    (Join-Path $framework "System.Core.dll"),
-    (Join-Path $framework "System.Windows.Forms.dll")
+    (Join-Path $framework "System.Core.dll")
 )
 
 if (-not (Test-Path -LiteralPath $csc)) { throw "csc.exe not found: $csc" }
