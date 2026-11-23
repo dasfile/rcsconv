@@ -90,9 +90,22 @@ pub fn convert_one(
     progress: &dyn Progress,
 ) -> Conversion {
     let target = default_target(source, options.out_dir.as_deref());
+    convert_to(source, &target, options, build_options, las, progress)
+}
+
+/// Convert one file into an explicit target path (used by the FFI and the GUI
+/// "Save as" flow).
+pub fn convert_to(
+    source: &Path,
+    target: &Path,
+    options: &Options,
+    build_options: &BuildOptions,
+    las: bool,
+    progress: &dyn Progress,
+) -> Conversion {
     let mut result = Conversion {
         source: source.to_path_buf(),
-        target: target.clone(),
+        target: target.to_path_buf(),
         status: Status::Failed,
         stats: None,
         failure: None,

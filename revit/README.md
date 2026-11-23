@@ -12,12 +12,13 @@ A thin Revit 2023 add-in that builds a ReCap `.rcs` **itself** (no ReCap, no
 
 ## Current state
 
-- `.pts` -> `.rcs` in C#: **verified byte for byte** against the Rust converter on
+- The command converts through `rcsconv.dll` (`.pts`, `.las`, `.laz`); the DLL is
+  built by `cargo build --release` and located once with "Locate rcsconv.dll...".
+- The C# writer (`.pts` -> `.rcs`) is **deprecated** but verified byte for byte against the Rust converter on
   `probe6`, `test1`, `test2`, `level_7` (324,680 points), `level_7_n19099`,
   `attic_south_west` (3,953,680 points, 79.5 MB), `entrance`, `roof_1_stairwell`.
-- `.las` — not implemented yet (the reader is the next step).
-- `.laz` — not supported by design: the LASzip decoder is out of scope for a single
-  `.cs` without external libraries; use `.pts`/`.las` (or `rcsconv.exe`).
+- `.las` and `.laz` are handled by the DLL (the Rust crates `las`/`laz`); no C#
+  format code is involved.
 - Linking uses `PointCloudType.Create` + `PointCloudInstance.Create` (Revit API
   2023); the engine identifier is chosen from
   `PointCloudEngineRegistry.GetSupportedEngines()`. `RcsConvProbe` reports the exact

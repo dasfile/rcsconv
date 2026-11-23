@@ -46,7 +46,7 @@ The release archive contains:
 rcsconv-<version>-x86_64-pc-windows-gnu.zip
     rcsconv.exe
     rcsconv-gui.exe
-    rcsconv.dll          (Revit add-in, optional)
+    rcsconv.dll          (required for the Revit add-in)
     LICENSE
     README.md
     SHA256SUMS.txt

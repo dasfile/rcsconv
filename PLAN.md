@@ -284,6 +284,13 @@ English-only phase onward the journal is kept here in English.
   two executables. Verified through Python `ctypes`: `probe6.pts` and
   `level_7.laz` are byte-identical to `.exe` output with the same GUID. The plugin
   still uses its C# writer; switching it to the DLL is the next step.
+- **R8.2 plugin switch** - `rcs-conv::convert_to` writes an explicit target path;
+  the DLL exports `rcsconv_convert_to` (verified with custom names: `probe6.pts` and
+  `level_7.laz` are byte-identical to `.exe`). The plugin now loads `rcsconv.dll`
+  (`LoadLibraryW` + `GetProcAddress`), converts `.pts/.las/.laz` through it, keeps
+  the Save-as/locked-file flow and reports points/tiles/depth from the response.
+  The C# writer stays as a deprecated byte-for-byte reference. Plugin compiles with
+  `csc /warn:4`, 0 errors and 0 warnings.
 - **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
   instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
   Revit assemblies plus assemblies already loaded in the Revit process, so a

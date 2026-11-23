@@ -100,7 +100,7 @@ mantissa and exponent and rounds with 64-bit integer arithmetic.
 
 ## 4. Behaviour of the command
 
-1. Pick `.pts` or `.las` (`.laz` is rejected with a pointer to `rcsconv.exe`).
+1. Pick `.pts`, `.las` or `.laz`.
 2. Pick the **target file** with the Revit "Save as" dialog (`FileSaveDialog`):
    the suggested name is `<input>.rcs`; the dialog starts in the last used folder,
    otherwise next to the model (`.rvt`), otherwise next to the input. Both the
@@ -108,11 +108,12 @@ mantissa and exponent and rounds with 64-bit integer arithmetic.
    `HKCU\Software\rcsconv\revit\last_dir`.
 3. If the file already exists, the command offers: use the existing file (when it
    is newer than the input), rebuild it, or **save under a new name**.
-4. Read the points (`PtsReader`: 3–7 columns, count header skipped, intensity
-   optional, values clamped to 0..255) and build the `.rcs`.
+4. Build the `.rcs` through `rcsconv.dll` (`rcsconv_convert_to`): the DLL reads the
+   input with the streaming writer and writes the chosen path; the plugin never
+   buffers the cloud.
 5. If the chosen file is locked by Revit (linked clouds keep the file open), the
-   command does not fail: it writes `<name>-2.rcs` (then `-3`, ...) and reports
-   the actual path used.
+   command does not fail: it calls the DLL again with `<name>-2.rcs` (then `-3`, ...)
+   and reports the actual path used.
 6. Create or reuse a `PointCloudType` for that path (compared via
    `Path.GetFullPath`, case-insensitive) and create a `PointCloudInstance` with
    `Transform.Identity` inside a transaction.
@@ -129,7 +130,7 @@ the cloud has to be relinked after the file is moved or deleted.
 | `.pts` -> `.rcs`, byte parity with Rust | done |
 | Linking into the model (`PointCloudType` + `PointCloudInstance`) | done (verify in Revit with the probe) |
 | `.las` reader (binary LAS 1.2/1.4, formats 0–3) | next |
-| `.laz` | not implemented in C# (a LASzip decoder is out of scope for one `.cs` without libraries): use `rcsconv.exe las2rcs <file>.laz -o <folder>`; `.pts`/`.las` are handled by the plugin |
+| `.laz` | supported through `rcsconv.dll` (the Rust crate `laz`); no C# LASzip code |
 | `.e57` | deferred with the format branch (`docs/CORPUS.md`) |
 | Batch conversion of a folder | later |
 
@@ -179,7 +180,9 @@ void  rcsconv_free(char *text);
 Verified: `probe6.pts` and `level_7.laz` converted through the DLL are
 byte-identical to the `.exe` with the same GUID (100,327 and 6,612,979 bytes).
 
-The plugin does not call it yet - the C# writer still handles `.pts`. Switching
-the plugin to the DLL (and dropping the C# writer) is the next step; it also
-brings `.laz` and heavy clouds into the add-in, because the DLL uses the
-streaming writer (peak about 20 MB).
+The plugin now calls the DLL for every input (`.pts`, `.las`, `.laz`) through
+`rcsconv_convert_to`; the DLL path is stored in `HKCU\Software\rcsconv\revit\dll_path`
+and can be picked once with "Locate rcsconv.dll...". The C# writer in this file is
+deprecated: it stays as the byte-for-byte reference and is removed after the Revit
+acceptance run. Because the DLL uses the streaming writer, the add-in peak stays
+around 20 MB.

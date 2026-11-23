@@ -11,8 +11,9 @@
 //               assemblies already loaded in the Revit process).
 //
 // Structure:
-//   namespace RcsConv.Core  - pure .NET writer (no Revit types); testable with
-//                             csc outside Revit (revit/tests/RcsWriterTests.cs)
+//   namespace RcsConv.Core  - DEPRECATED pure .NET writer (no Revit types). The
+//                             command now calls rcsconv.dll; the writer stays as the
+//                             byte-for-byte reference for revit/tests/RcsWriterTests.cs
 //   namespace IvanTools     - the IExternalCommand: pick a file, build the .rcs,
 //                             create PointCloudType + PointCloudInstance
 //
@@ -28,6 +29,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Runtime.InteropServices;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -900,6 +902,200 @@ namespace RcsConv.Core
 
 namespace IvanTools
 {
+    /// <summary>P/Invoke facade over rcsconv.dll (C ABI, UTF-8, panic-safe).</summary>
+    internal static class RustDll
+    {
+        private const string EnvName = "RCS_CONV_DLL";
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate IntPtr ConvertToFn(IntPtr input, IntPtr target, IntPtr guid,
+                                            uint maxPerTile, uint flags);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void FreeFn(IntPtr text);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibraryW(string path);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        private static extern IntPtr GetProcAddress(IntPtr module, string name);
+
+        private static IntPtr _module;
+        private static ConvertToFn _convertTo;
+        private static FreeFn _free;
+        private static string _path;
+
+        public static string Path { get { return _path; } }
+        public static string LastError { get; private set; }
+        public static bool Loaded { get { return _module != IntPtr.Zero && _convertTo != null; } }
+
+        private const string SettingsKey = @"Software\rcsconv\revit";
+
+        public static string LoadDllPath()
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key =
+                    Microsoft.Win32.Registry.CurrentUser.OpenSubKey(SettingsKey))
+                {
+                    if (key != null)
+                        return key.GetValue("dll_path") as string;
+                }
+            }
+            catch (Exception)
+            {
+            }
+            return null;
+        }
+
+        public static void SaveDllPath(string path)
+        {
+            try
+            {
+                using (Microsoft.Win32.RegistryKey key =
+                    Microsoft.Win32.Registry.CurrentUser.CreateSubKey(SettingsKey))
+                {
+                    if (key != null)
+                        key.SetValue("dll_path", path);
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        public static string Find()
+        {
+            string[] candidates = new string[]
+            {
+                LoadDllPath(),
+                Environment.GetEnvironmentVariable(EnvName),
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "rcsconv.dll"),
+                System.IO.Path.Combine(Directory.GetCurrentDirectory(), "rcsconv.dll")
+            };
+            foreach (string candidate in candidates)
+            {
+                if (!string.IsNullOrEmpty(candidate) && File.Exists(candidate))
+                    return candidate;
+            }
+            return null;
+        }
+
+        public static bool TryLoad(string path)
+        {
+            if (Loaded)
+                return true;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                LastError = "rcsconv.dll not found: " + path;
+                return false;
+            }
+            IntPtr module = LoadLibraryW(path);
+            if (module == IntPtr.Zero)
+            {
+                LastError = "LoadLibrary failed (" + Marshal.GetLastWin32Error() + "): " + path;
+                return false;
+            }
+            IntPtr convert = GetProcAddress(module, "rcsconv_convert_to");
+            IntPtr free = GetProcAddress(module, "rcsconv_free");
+            if (convert == IntPtr.Zero || free == IntPtr.Zero)
+            {
+                LastError = "rcsconv.dll does not export rcsconv_convert_to / rcsconv_free";
+                return false;
+            }
+            _convertTo = (ConvertToFn)Marshal.GetDelegateForFunctionPointer(convert, typeof(ConvertToFn));
+            _free = (FreeFn)Marshal.GetDelegateForFunctionPointer(free, typeof(FreeFn));
+            _module = module;
+            _path = path;
+            LastError = null;
+            return true;
+        }
+
+        /// <summary>Build a .rcs into an explicit path; flags: bit 0 = overwrite.</summary>
+        public static DllResult Convert(string input, string target, string guid, uint maxPerTile, uint flags)
+        {
+            if (!Loaded)
+            {
+                DllResult missing = new DllResult();
+                missing.Message = LastError == null ? "rcsconv.dll is not loaded" : LastError;
+                return missing;
+            }
+            IntPtr inputPtr = ToUtf8(input);
+            IntPtr targetPtr = ToUtf8(target);
+            IntPtr guidPtr = ToUtf8(guid);
+            try
+            {
+                IntPtr response = _convertTo(inputPtr, targetPtr, guidPtr, maxPerTile, flags);
+                string text = FromUtf8(response);
+                _free(response);
+                return DllResult.Parse(text);
+            }
+            finally
+            {
+                Free(inputPtr);
+                Free(targetPtr);
+                Free(guidPtr);
+            }
+        }
+
+        private static IntPtr ToUtf8(string text)
+        {
+            if (text == null)
+                return IntPtr.Zero;
+            byte[] bytes = Encoding.UTF8.GetBytes(text);
+            IntPtr pointer = Marshal.AllocHGlobal(bytes.Length + 1);
+            Marshal.Copy(bytes, 0, pointer, bytes.Length);
+            Marshal.WriteByte(pointer, bytes.Length, 0);
+            return pointer;
+        }
+
+        private static string FromUtf8(IntPtr pointer)
+        {
+            if (pointer == IntPtr.Zero)
+                return string.Empty;
+            int length = 0;
+            while (Marshal.ReadByte(pointer, length) != 0)
+                length++;
+            byte[] bytes = new byte[length];
+            Marshal.Copy(pointer, bytes, 0, length);
+            return Encoding.UTF8.GetString(bytes);
+        }
+
+        private static void Free(IntPtr pointer)
+        {
+            if (pointer != IntPtr.Zero)
+                Marshal.FreeHGlobal(pointer);
+        }
+    }
+
+    /// <summary>Line-based response of rcsconv_convert_to.</summary>
+    internal sealed class DllResult
+    {
+        public bool Ok;
+        public string Path;
+        public long Points;
+        public int Tiles;
+        public int Depth;
+        public string Message;
+
+        public static DllResult Parse(string text)
+        {
+            DllResult result = new DllResult();
+            string[] lines = (text ?? string.Empty).Replace("\r", string.Empty).Split('\n');
+            if (lines.Length > 0 && lines[0] == "ok")
+            {
+                result.Ok = true;
+                result.Path = lines.Length > 1 ? lines[1] : null;
+                if (lines.Length > 2) long.TryParse(lines[2], out result.Points);
+                if (lines.Length > 3) int.TryParse(lines[3], out result.Tiles);
+                if (lines.Length > 4) int.TryParse(lines[4], out result.Depth);
+                return result;
+            }
+            result.Message = lines.Length > 1 ? lines[1] : (text ?? string.Empty);
+            return result;
+        }
+    }
+
     /// <summary>
     /// Build a .rcs from .pts/.las with the in-process writer and link it into the
     /// active document as a point cloud.
@@ -927,28 +1123,12 @@ namespace IvanTools
                 return Result.Cancelled;
 
             string extension = Path.GetExtension(input).ToLowerInvariant();
-            if (extension == ".laz")
-            {
-                TaskDialog.Show(Caption,
-                    "LAZ is not supported by the C# build.\n\n" +
-                    "Use the standalone converter:\n" +
-                    "  rcsconv.exe las2rcs \"<file>.laz\" -o \"<folder>\"\n\n" +
-                    "or save the cloud as .pts/.las and run this command again.");
-                return Result.Cancelled;
-            }
-            if (extension != ".pts" && extension != ".las")
+            if (extension != ".pts" && extension != ".las" && extension != ".laz")
             {
                 TaskDialog.Show(Caption, "Unsupported input: " + input);
                 return Result.Cancelled;
             }
-            if (extension == ".las")
-            {
-                TaskDialog.Show(Caption, "LAS support is not implemented yet in this build.");
-                return Result.Cancelled;
-            }
 
-            // Ask for the target file BEFORE reading the cloud: Revit keeps linked
-            // .rcs files open, so the name must be adjustable (Save as).
             string target = PickTarget(document, input);
             if (string.IsNullOrEmpty(target))
                 return Result.Cancelled;
@@ -956,7 +1136,6 @@ namespace IvanTools
             Log("input: " + input);
             Log("target: " + target);
 
-            BuildStats stats = null;
             bool reuse = false;
             while (File.Exists(target))
             {
@@ -977,57 +1156,31 @@ namespace IvanTools
                 break;
             }
 
+            if (!EnsureRustDll())
+                return Result.Failed;
+
+            DllResult built = null;
             if (!reuse)
             {
-                CloudPoint[] points;
-                try
+                built = RustDll.Convert(input, target, null, 65536, 1);
+                if (!built.Ok && IsFileBusy(target))
                 {
-                    points = PtsReader.Read(input);
-                }
-                catch (Exception error)
-                {
-                    TaskDialog.Show(Caption, "Cannot read the input:\n\n" + error.Message);
-                    return Result.Failed;
-                }
-                if (points.Length == 0)
-                {
-                    TaskDialog.Show(Caption, "The source contains no points.");
-                    return Result.Cancelled;
-                }
-
-                byte[] bytes;
-                try
-                {
-                    bytes = RcsWriter.Build(points, new BuildOptions(), out stats);
-                }
-                catch (Exception error)
-                {
-                    TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + error.Message);
-                    return Result.Failed;
-                }
-
-                try
-                {
-                    File.WriteAllBytes(target, bytes);
-                }
-                catch (IOException writeError)
-                {
-                    // Revit keeps the linked .rcs open: save under a free name instead
-                    // of failing or asking the user to close Revit.
                     string alternative = UniqueTarget(target);
-                    try
+                    DllResult retry = RustDll.Convert(input, alternative, null, 65536, 1);
+                    if (retry.Ok)
                     {
-                        File.WriteAllBytes(alternative, bytes);
+                        Log("locked '" + target + "', saved as '" + alternative + "'");
+                        target = alternative;
+                        built = retry;
                     }
-                    catch (Exception retry)
-                    {
-                        TaskDialog.Show(Caption,
-                            "Cannot write the .rcs file:\n\n" + alternative + "\n\n" + retry.Message);
-                        return Result.Failed;
-                    }
-                    Log("locked '" + target + "', saved as '" + alternative + "': " + writeError.Message);
-                    target = alternative;
                 }
+                if (!built.Ok)
+                {
+                    Log("ffi failed: " + built.Message);
+                    TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + built.Message);
+                    return Result.Failed;
+                }
+                target = built.Path;
             }
 
             ElementId instanceId;
@@ -1044,8 +1197,71 @@ namespace IvanTools
             }
 
             Log("linked with engine " + engine + ", element " + instanceId.IntegerValue);
-            ShowReport(document, target, stats, instanceId, engine, reuse);
+            ShowReport(document, target, built, instanceId, engine, reuse);
             return Result.Succeeded;
+        }
+
+        /// <summary>Load rcsconv.dll, asking for its path once when it is not found.</summary>
+        private static bool EnsureRustDll()
+        {
+            string found = RustDll.Find();
+            if (!string.IsNullOrEmpty(found) && RustDll.TryLoad(found))
+            {
+                Log("dll: " + found);
+                return true;
+            }
+
+            TaskDialog dialog = new TaskDialog(Caption);
+            dialog.MainInstruction = "rcsconv.dll is not loaded";
+            dialog.MainContent =
+                (RustDll.LastError == null ? "rcsconv.dll was not found." : RustDll.LastError) +
+                Environment.NewLine + Environment.NewLine +
+                "Build it with: cargo build --release -p rcsconv-ffi";
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Locate rcsconv.dll...");
+            dialog.CommonButtons = TaskDialogCommonButtons.Cancel;
+            if (dialog.Show() != TaskDialogResult.CommandLink1)
+                return false;
+
+            using (FileOpenDialog picker = new FileOpenDialog("rcsconv.dll (*.dll)|*.dll"))
+            {
+                picker.Title = "Locate rcsconv.dll";
+                if (picker.Show() != ItemSelectionDialogResult.Confirmed)
+                    return false;
+                ModelPath path = picker.GetSelectedModelPath();
+                if (path == null)
+                    return false;
+                string dll = ModelPathUtils.ConvertModelPathToUserVisiblePath(path);
+                if (!RustDll.TryLoad(dll))
+                {
+                    TaskDialog.Show(Caption, "Cannot load the DLL:\n\n" + RustDll.LastError);
+                    return false;
+                }
+                RustDll.SaveDllPath(dll);
+                Log("dll: " + dll);
+                return true;
+            }
+        }
+
+        private static bool IsFileBusy(string path)
+        {
+            if (!File.Exists(path))
+                return false;
+            try
+            {
+                using (FileStream stream = new FileStream(path, FileMode.Open,
+                    FileAccess.ReadWrite, FileShare.None))
+                {
+                }
+                return false;
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
         }
 
         private static string PickInput()
@@ -1351,19 +1567,21 @@ namespace IvanTools
             return null;
         }
 
-        private static void ShowReport(Document document, string path, BuildStats stats,
+        private static void ShowReport(Document document, string path, DllResult built,
                                        ElementId instanceId, string engine, bool reused)
         {
             string text = "File: " + path + Environment.NewLine +
                           "Element id: " + instanceId.IntegerValue + Environment.NewLine +
                           "Engine: " + engine;
             if (reused)
+            {
                 text += Environment.NewLine + "Reused the existing file (no rebuild).";
-            if (stats != null)
+            }
+            else if (built != null)
             {
                 text += string.Format(CultureInfo.InvariantCulture,
-                    Environment.NewLine + "Points: {0}; tiles: {1}; depth: {2}; edge: {3:0.###} m",
-                    stats.Points, stats.Tiles, stats.Depth, stats.TileEdge);
+                    Environment.NewLine + "Points: {0}; tiles: {1}; depth: {2}",
+                    built.Points, built.Tiles, built.Depth);
             }
             Element instance = document.GetElement(instanceId);
             BoundingBoxXYZ box = instance == null ? null : instance.get_BoundingBox(null);

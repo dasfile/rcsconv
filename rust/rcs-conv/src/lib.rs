@@ -12,7 +12,7 @@ pub mod convert;
 pub mod files;
 pub mod options;
 
-pub use convert::{convert_one, describe, write_atomic, Conversion, Failure, Status};
+pub use convert::{convert_one, convert_to, describe, write_atomic, Conversion, Failure, Status};
 pub use files::{collect_dir, default_target, expand_sources, glob, has_suffix, wildcard_match};
 pub use options::{ArgsError, Options};
 
