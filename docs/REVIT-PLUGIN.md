@@ -100,7 +100,7 @@ mantissa and exponent and rounds with 64-bit integer arithmetic.
 
 ## 4. Behaviour of the command
 
-1. Pick `.pts` or `.las` (`.laz` is rejected with an explanation).
+1. Pick `.pts` or `.las` (`.laz` is rejected with a pointer to `rcsconv.exe`).
 2. Read the points (`PtsReader`: 3–7 columns, count header skipped, intensity
    optional, values clamped to 0..255).
 3. Pick the **output folder** with the native shell dialog (`SHBrowseForFolderW`,
@@ -116,7 +116,7 @@ mantissa and exponent and rounds with 64-bit integer arithmetic.
    `Path.GetFullPath`, case-insensitive) and create a `PointCloudInstance` with
    `Transform.Identity` inside a transaction.
 7. Report the path, element id, engine, point/tile statistics and the bbox in
-   metres; a command link opens the folder with the file.
+   metres.
 
 The `.rcs` stays referenced by the model: the chosen folder must stay in place, or
 the cloud has to be relinked after the file is moved or deleted.
@@ -128,7 +128,7 @@ the cloud has to be relinked after the file is moved or deleted.
 | `.pts` -> `.rcs`, byte parity with Rust | done |
 | Linking into the model (`PointCloudType` + `PointCloudInstance`) | done (verify in Revit with the probe) |
 | `.las` reader (binary LAS 1.2/1.4, formats 0–3) | next |
-| `.laz` | **not planned** in C#: a LASzip decoder is out of scope for one `.cs` without libraries; use `.pts`/`.las` or `rcsconv.exe` |
+| `.laz` | not implemented in C# (a LASzip decoder is out of scope for one `.cs` without libraries): use `rcsconv.exe las2rcs <file>.laz -o <folder>`; `.pts`/`.las` are handled by the plugin |
 | `.e57` | deferred with the format branch (`docs/CORPUS.md`) |
 | Batch conversion of a folder | later |
 
@@ -154,3 +154,21 @@ the cloud has to be relinked after the file is moved or deleted.
 | How Revit treats a regenerated `.rcs` at the same path | the command offers rebuild/reuse; if the file is locked by Revit, choose another folder or close the document |
 | Does `PointCloudInstance.Create` need a specific view or level | checked in the probe; the API takes no view |
 | `.las` point formats actually used by the owner's pipeline | test with `.las` produced from `golden/*.laz` |
+
+## 8. Future: Rust as a DLL (recorded, not started)
+
+The standalone converter already handles `.laz`. If the plugin ever needs the
+converter in-process (for example reading `.rcs`, `inspect` or `rcs2pts`), the
+Rust crate can be built as a C ABI library and called from C#:
+
+- `crate-type = ["cdylib"]` plus `extern "C"` / `#[no_mangle]` functions, for
+  example `rcsconv_convert(utf16_path, utf16_out_dir, utf16_guid, flags, err, err_len)`
+  and `rcsconv_free`;
+- the panic must not cross the boundary (`catch_unwind` on every exported call; the
+  release profile already uses `panic = "unwind"`);
+- memory is allocated and freed only inside Rust (return `ptr` + `len`);
+- in C# the DLL is loaded by `DllImport` with a full path or after
+  `LoadLibrary`/`SetDllDirectory`, because the process is `Revit.exe`;
+- cost: a second binary (`rcsconv.exe` + `rcsconv.dll`), an `unsafe` FFI layer and a
+  higher crash risk inside Revit. For `.laz` alone it is not worth it: the current
+  process call takes 0.7 s per 324,000 points.

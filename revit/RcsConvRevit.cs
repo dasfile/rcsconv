@@ -931,8 +931,10 @@ namespace IvanTools
             if (extension == ".laz")
             {
                 TaskDialog.Show(Caption,
-                    "LAZ is not supported by this version.\n\n" +
-                    "Save the cloud as .las or .pts and run the command again.");
+                    "LAZ is not supported by the C# build.\n\n" +
+                    "Use the standalone converter:\n" +
+                    "  rcsconv.exe las2rcs \"<file>.laz\" -o \"<folder>\"\n\n" +
+                    "or save the cloud as .pts/.las and run this command again.");
                 return Result.Cancelled;
             }
             if (extension != ".pts" && extension != ".las")
@@ -1400,13 +1402,8 @@ namespace IvanTools
             TaskDialog dialog = new TaskDialog(Caption);
             dialog.MainInstruction = "Point cloud linked";
             dialog.MainContent = text;
-            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Open folder");
             dialog.CommonButtons = TaskDialogCommonButtons.Close;
-            if (dialog.Show() == TaskDialogResult.CommandLink1)
-            {
-                System.Diagnostics.Process.Start("explorer.exe",
-                    "/select,\"" + path + "\"");
-            }
+            dialog.Show();
         }
     }
 }

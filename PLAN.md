@@ -246,6 +246,12 @@ English-only phase onward the journal is kept here in English.
   removed on the owner's request: the folder is chosen in the command dialog and
   remembered in `HKCU\Software\rcsconv\revit\last_dir`; an existing file can
   be reused or rebuilt. Pending: `.las`, packaging.
+- **R7.3 scope + dialog cleanup** — the final dialog no longer offers "Open folder"
+  (the owner does not need it); the report is text only. `.laz` is explicitly out
+  of scope for the C# build: the message points to `rcsconv.exe las2rcs <file>.laz
+  -o <folder>` (or saving as `.pts`/`.las`). The idea of a Rust `cdylib` called from
+  C# through P/Invoke is recorded in `docs/REVIT-PLUGIN.md` section 8 for a future
+  phase, not implemented.
 - **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
   instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
   Revit assemblies plus assemblies already loaded in the Revit process, so a
