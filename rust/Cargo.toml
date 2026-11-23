@@ -1,5 +1,5 @@
-﻿[workspace]
-members = ["cloud-las", "cloud-pts", "rcs-cloud", "rcs-conv", "rcs-format", "rcsconv", "rcsconv-gui"]
+[workspace]
+members = ["cloud-las", "cloud-pts", "rcs-cloud", "rcs-conv", "rcs-format", "rcsconv", "rcsconv-ffi", "rcsconv-gui"]
 resolver = "2"
 
 # Release profile for the "one static .exe" requirement (docs/ROADMAP.md 1, 3).

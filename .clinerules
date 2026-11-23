@@ -47,6 +47,8 @@ ReCap 2020 (6.0.0.110).
     "Toolchain: portable installation").
     Rust/Python parity is checked **byte by byte** on the reference files
     (`docs/ROADMAP.md`).
+    The Revit add-in loads `rcsconv.dll` (`rcsconv-ffi`, `cdylib`) built from the
+    same crates; the CLI stays one static `.exe`.
     Dependency exception: `tools/las2pts.py` uses **laspy** (with the `laszip` or
     `lazrs` backend) — optional and only for importing LAS/LAZ (LAZ decompression
     is impossible without an external library). Without laspy the other tools and

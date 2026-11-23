@@ -232,6 +232,6 @@ git, and is cleaned with `cargo clean`.
 
 ```powershell
 cd rust
-cargo build --release      # -> rcsconv.exe and rcsconv-gui.exe (static CRT)
+cargo build --release      # -> rcsconv.exe, rcsconv-gui.exe, rcsconv.dll (static CRT)
 cargo test                 # crate and GUI-logic tests (71)
 ```

@@ -19,7 +19,7 @@ static binaries, no Python, no DLLs, no installation.
 cd rust
 cargo clean
 cargo test --workspace --offline
-cargo build --release
+cargo build --release   # rcsconv.exe, rcsconv-gui.exe, rcsconv.dll
 ```
 
 Expected: 71 tests pass; `target\release\rcsconv.exe` and `rcsconv-gui.exe` are
@@ -46,6 +46,7 @@ The release archive contains:
 rcsconv-<version>-x86_64-pc-windows-gnu.zip
     rcsconv.exe
     rcsconv-gui.exe
+    rcsconv.dll          (Revit add-in, optional)
     LICENSE
     README.md
     SHA256SUMS.txt

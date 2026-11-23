@@ -278,6 +278,12 @@ English-only phase onward the journal is kept here in English.
   in-memory writer is covered by `streaming_matches_in_memory` (probe6, level_7.pts,
   level_7.laz). R9.3: merge the maxima pass into the count pass to remove one
   decompression.
+- **R8 DLL** - new crate `rust/rcsconv-ffi` (`cdylib`) exports `rcsconv_version`,
+  `rcsconv_convert`, `rcsconv_free`; C ABI, UTF-8, panic-safe, line-based response.
+  `cargo build --release` now produces `rcsconv.dll` (608,256 bytes) next to the
+  two executables. Verified through Python `ctypes`: `probe6.pts` and
+  `level_7.laz` are byte-identical to `.exe` output with the same GUID. The plugin
+  still uses its C# writer; switching it to the DLL is the next step.
 - **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
   instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
   Revit assemblies plus assemblies already loaded in the Revit process, so a

@@ -1,0 +1,14 @@
+[package]
+name = "rcsconv-ffi"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+description = "C ABI for the Revit add-in: build .rcs from .pts/.las/.laz"
+license = "MIT"
+
+[lib]
+name = "rcsconv"
+crate-type = ["cdylib"]
+
+[dependencies]
+rcs-conv = { path = "../rcs-conv" }

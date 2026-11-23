@@ -156,20 +156,30 @@ the cloud has to be relinked after the file is moved or deleted.
 | Does `PointCloudInstance.Create` need a specific view or level | checked in the probe; the API takes no view |
 | `.las` point formats actually used by the owner's pipeline | test with `.las` produced from `golden/*.laz` |
 
-## 8. Future: Rust as a DLL (recorded, not started)
+## 8. Rust DLL (R8): available
 
-The standalone converter already handles `.laz`. If the plugin ever needs the
-converter in-process (for example reading `.rcs`, `inspect` or `rcs2pts`), the
-Rust crate can be built as a C ABI library and called from C#:
+`cargo build --release` produces `rust/target/release/rcsconv.dll` (crate
+`rcsconv-ffi`, `crate-type = ["cdylib"]`). C ABI:
 
-- `crate-type = ["cdylib"]` plus `extern "C"` / `#[no_mangle]` functions, for
-  example `rcsconv_convert(utf16_path, utf16_out_dir, utf16_guid, flags, err, err_len)`
-  and `rcsconv_free`;
-- the panic must not cross the boundary (`catch_unwind` on every exported call; the
-  release profile already uses `panic = "unwind"`);
-- memory is allocated and freed only inside Rust (return `ptr` + `len`);
-- in C# the DLL is loaded by `DllImport` with a full path or after
-  `LoadLibrary`/`SetDllDirectory`, because the process is `Revit.exe`;
-- cost: a second binary (`rcsconv.exe` + `rcsconv.dll`), an `unsafe` FFI layer and a
-  higher crash risk inside Revit. For `.laz` alone it is not worth it: the current
-  process call takes 0.7 s per 324,000 points.
+```c
+char *rcsconv_version(void);
+char *rcsconv_convert(const char *input, const char *out_dir, const char *guid,
+                      uint32_t max_per_tile, uint32_t flags);
+void  rcsconv_free(char *text);
+```
+
+- strings are UTF-8, NUL-terminated; every returned pointer is released with
+  `rcsconv_free` (memory never leaves Rust);
+- `flags`: bit 0 = overwrite an existing `.rcs`, bit 1 = use the in-memory
+  reference writer;
+- every call is wrapped in `catch_unwind`, so a panic cannot cross into Revit;
+- the response is line based: `ok`, output path, points, tiles, depth; or `err`
+  followed by the message.
+
+Verified: `probe6.pts` and `level_7.laz` converted through the DLL are
+byte-identical to the `.exe` with the same GUID (100,327 and 6,612,979 bytes).
+
+The plugin does not call it yet - the C# writer still handles `.pts`. Switching
+the plugin to the DLL (and dropping the C# writer) is the next step; it also
+brings `.laz` and heavy clouds into the add-in, because the DLL uses the
+streaming writer (peak about 20 MB).

@@ -243,6 +243,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcsconv-ffi"
+version = "1.0.0"
+dependencies = [
+ "rcs-conv",
+]
+
+[[package]]
 name = "rcsconv-gui"
 version = "1.0.0"
 dependencies = [
