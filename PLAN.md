@@ -267,6 +267,17 @@ English-only phase onward the journal is kept here in English.
   bucket buffers, temporary files in the output folder, atomic rename. Byte parity
   with the current writer remains the acceptance criterion. Implementation is R9.2;
   the DLL (R8) follows it.
+- **R9.2 implementation** - `rcs-cloud/src/stream.rs`: three passes (count, bucket
+  partition, assembly), precomputed block sizes, bucket files sorted per range,
+  atomic rename, `TempGuard` cleanup. `Source::scan` and `bounds_hint` were added;
+  LAS/LAZ compute colour/intensity scales once. The streaming path is the default
+  (`--in-memory` keeps the reference writer).
+- **R9.2 results** - peak RAM on `attic_south_west.laz` (3.95 M points) fell from
+  640.9 MB to 19.7 MB (`entrance.laz`: 420.9 -> 17.9 MB); time grew from 9.1 s to
+  22.5 s because LAZ is decompressed two or three times. Byte parity with the
+  in-memory writer is covered by `streaming_matches_in_memory` (probe6, level_7.pts,
+  level_7.laz). R9.3: merge the maxima pass into the count pass to remove one
+  decompression.
 - **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
   instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
   Revit assemblies plus assemblies already loaded in the Revit process, so a

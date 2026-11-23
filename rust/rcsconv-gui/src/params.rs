@@ -136,6 +136,7 @@ impl Settings {
                 color_scale: rcs_conv::ScaleMode::Auto,
                 intensity_scale: rcs_conv::ScaleMode::Auto,
             },
+            in_memory: false,
         };
         options.validate()?;
         Ok(options)

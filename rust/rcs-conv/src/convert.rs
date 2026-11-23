@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use rcs_cloud::progress::Progress;
-use rcs_cloud::{build_from_source_with, BuildOptions, Error, Stats};
+use rcs_cloud::{build_from_source_with, BuildOptions, Error, Source, Stats};
 
 use crate::files::default_target;
 use crate::options::Options;
@@ -103,16 +103,36 @@ pub fn convert_one(
         return result;
     }
 
-    let built = if las {
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(err) = std::fs::create_dir_all(parent) {
+                result.failure = Some(Failure {
+                    subject: parent.to_path_buf(),
+                    message: err.to_string(),
+                });
+                return result;
+            }
+        }
+    }
+
+    let outcome: Result<Stats, Error> = if las {
         let mut reader = cloud_las::LasSource::new(source, options.las.clone());
-        build_from_source_with(&mut reader, build_options, progress)
+        if options.in_memory {
+            build_in_memory(&mut reader, build_options, progress, &target)
+        } else {
+            rcs_cloud::stream::build_streaming(&mut reader, build_options, progress, &target)
+        }
     } else {
         let mut reader = cloud_pts::PtsSource::new(source);
-        build_from_source_with(&mut reader, build_options, progress)
+        if options.in_memory {
+            build_in_memory(&mut reader, build_options, progress, &target)
+        } else {
+            rcs_cloud::stream::build_streaming(&mut reader, build_options, progress, &target)
+        }
     };
 
-    let (blob, stats) = match built {
-        Ok(built) => built,
+    let stats = match outcome {
+        Ok(stats) => stats,
         Err(Error::Cancelled) => {
             result.status = Status::Cancelled;
             return result;
@@ -126,31 +146,23 @@ pub fn convert_one(
         }
     };
 
-    if let Some(parent) = target.parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Err(err) = std::fs::create_dir_all(parent) {
-                result.failure = Some(Failure {
-                    subject: parent.to_path_buf(),
-                    message: err.to_string(),
-                });
-                return result;
-            }
-        }
-    }
-
-    if let Err(err) = write_atomic(&target, &blob) {
-        result.failure = Some(Failure {
-            subject: target.clone(),
-            message: err.to_string(),
-        });
-        return result;
-    }
-
     result.status = Status::Written;
     result.stats = Some(stats);
     result
 }
 
+
+/// Reference path: build the whole file in memory and write it atomically.
+fn build_in_memory(
+    source: &mut dyn Source,
+    options: &BuildOptions,
+    progress: &dyn Progress,
+    target: &Path,
+) -> Result<Stats, Error> {
+    let (blob, stats) = build_from_source_with(source, options, progress)?;
+    write_atomic(target, &blob).map_err(Error::Io)?;
+    Ok(stats)
+}
 /// Report line — the same format as in the Python reference.
 pub fn describe(source: &Path, target: &Path, stats: &Stats) -> String {
     let words = if stats.metadata_words.is_empty() {
@@ -351,5 +363,41 @@ mod tests {
         assert!(result.message().contains("ERROR"), "{}", result.message());
         assert!(!result.target.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// The streaming writer and the in-memory reference must produce the same bytes.
+    #[test]
+    fn streaming_matches_in_memory() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../golden");
+        for name in ["probe6.pts", "level_7.pts", "level_7.laz"] {
+            let source = root.join(name);
+            if !source.exists() {
+                eprintln!("skip: no {}", source.display());
+                continue;
+            }
+            let dir = temp_dir(&format!("stream-{}", name.replace('.', "-")));
+            let stream_dir = dir.join("stream");
+            let memory_dir = dir.join("memory");
+            std::fs::create_dir_all(&stream_dir).expect("stream dir");
+            std::fs::create_dir_all(&memory_dir).expect("memory dir");
+            let guid = "{00112233-4455-6677-8899-aabbccddeeff}";
+
+            let mut stream_options = options_for(&source, &stream_dir);
+            stream_options.guid = Some(guid.to_string());
+            let mut memory_options = options_for(&source, &memory_dir);
+            memory_options.guid = Some(guid.to_string());
+            memory_options.in_memory = true;
+            let build = stream_options.build_options().expect("build options");
+            let las = name.ends_with(".laz") || name.ends_with(".las");
+
+            let streamed = convert_one(&source, &stream_options, &build, las, &NoProgress);
+            let in_memory = convert_one(&source, &memory_options, &build, las, &NoProgress);
+            assert_eq!(streamed.status, Status::Written, "{}", streamed.message());
+            assert_eq!(in_memory.status, Status::Written, "{}", in_memory.message());
+            let stem = source.file_stem().unwrap().to_string_lossy().into_owned();
+            let a = std::fs::read(stream_dir.join(format!("{stem}.rcs"))).expect("stream file");
+            let b = std::fs::read(memory_dir.join(format!("{stem}.rcs"))).expect("memory file");
+            assert_eq!(a, b, "{name}: streaming and in-memory bytes differ");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }

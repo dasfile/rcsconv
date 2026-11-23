@@ -30,6 +30,9 @@ pub struct Options {
     pub guid: Option<String>,
     /// LAS/LAZ read settings.
     pub las: cloud_las::LasOptions,
+
+    /// Build the file in memory (reference writer) instead of streaming.
+    pub in_memory: bool,
 }
 
 impl Default for Options {
@@ -42,6 +45,7 @@ impl Default for Options {
             recursive: false,
             guid: None,
             las: cloud_las::LasOptions::default(),
+            in_memory: false,
         }
     }
 }
@@ -84,6 +88,7 @@ impl Options {
                 "-f" | "--force" => options.force = true,
                 "-r" | "--recursive" => options.recursive = true,
                 "-g" | "--guid" => options.guid = Some(take(&arg)?),
+                "--in-memory" => options.in_memory = true,
                 "--units-scale" if las => {
                     let text = take(&arg)?;
                     options.las.units = text

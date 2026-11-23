@@ -1,6 +1,6 @@
 # Streaming writer (R9): measurements and design
 
-Status: R9.0 (measurements) and R9.1 (design) are complete; implementation is R9.2.
+Status: R9.0 (measurements), R9.1 (design) and R9.2 (implementation) are complete.
 
 ## 1. Why
 
@@ -34,6 +34,22 @@ The LAZ path costs about 270 MB more than `.pts` on the same cloud: the decoded
 | 100 M | 10 GB | 17 GB |
 
 A 1 GB LAZ (tens of millions of points) is a crash risk today.
+
+### Results after R9.2 (streaming is the default)
+
+Same method and inputs, `rcsconv.exe` 1.0.0 built with the streaming writer:
+
+| Input | Points | Output | Peak RAM before | Peak RAM after | Time before | Time after |
+|---|---|---|---|---|---|---|
+| `attic_south_west.laz` | 3,953,680 | 79.52 MB | 640.9 MB | **19.7 MB** | 9.09 s | 22.48 s |
+| `entrance.laz` | 2,580,040 | 51.83 MB | 420.9 MB | **17.9 MB** | 5.74 s | 12.01 s |
+
+Memory no longer depends on the cloud size. The time grows because a LAZ file is
+decompressed two or three times (maxima pass, count pass, partition pass). A known
+optimisation (R9.3) is to compute the colour/intensity maxima during the count pass
+and reuse them, which removes one decompression.
+
+The in-memory reference writer is still available: `rcsconv ... --in-memory`.
 
 ## 3. Where the memory goes (from `rcs-cloud` and `rcs-format`)
 

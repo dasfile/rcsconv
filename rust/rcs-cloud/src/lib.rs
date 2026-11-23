@@ -16,6 +16,7 @@ pub mod octree;
 pub mod point;
 pub mod progress;
 pub mod source;
+pub mod stream;
 
 pub use build::{build_from_points, build_from_points_with, build_from_source, build_from_source_with, BuildOptions, Stats};
 pub use error::{Error, Result};

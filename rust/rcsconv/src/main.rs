@@ -25,6 +25,7 @@ Common options:
   -f, --force                    overwrite existing .rcs
   -r, --recursive                walk subdirectories
   -g, --guid GUID                set GUID ({8_4_4_4_12}); default is random
+      --in-memory                build in memory (reference writer, debug only)
 
 las2rcs options:
       --units-scale F            coordinate multiplier (feet -> m: 0.3048)

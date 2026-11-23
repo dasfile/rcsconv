@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 use std::cell::RefCell;
+use std::io::BufRead;
 use std::path::PathBuf;
 
 use rcs_cloud::progress::{NoProgress, Progress, Stage};
@@ -101,6 +102,37 @@ fn clamp8(value: i64) -> u8 {
 }
 
 impl Source for PtsSource {
+    fn bounds_hint(&self) -> Option<Bounds> {
+        None
+    }
+
+    fn scan(
+        &mut self,
+        progress: &dyn Progress,
+        visit: &mut dyn FnMut(CloudPoint) -> Result<()>,
+    ) -> Result<()> {
+        let file = std::fs::File::open(&self.path)?;
+        let total = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let reader = std::io::BufReader::new(file);
+        let mut offset = 0u64;
+        progress.stage(Stage::Read, 0, total);
+        for (index, line) in reader.lines().enumerate() {
+            let line = line?;
+            offset += line.len() as u64 + 1;
+            if let Some(point) = parse_line(&line) {
+                visit(point)?;
+            }
+            if index % REPORT_LINES == REPORT_LINES - 1 {
+                progress.stage(Stage::Read, offset.min(total), total);
+                if progress.cancelled() {
+                    return Err(Error::Cancelled);
+                }
+            }
+        }
+        progress.stage(Stage::Read, total, total);
+        Ok(())
+    }
+
     fn bounds(&self) -> Result<Bounds> {
         self.bounds_with(&NoProgress)
     }

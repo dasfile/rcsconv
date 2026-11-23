@@ -45,6 +45,22 @@ pub trait Source {
     /// bbox and point count.
     fn bounds(&self) -> Result<Bounds>;
 
+    /// bbox and count when the source knows them without reading every point
+    /// (LAS/LAZ take them from the header; `.pts` returns `None`).
+    fn bounds_hint(&self) -> Option<Bounds> {
+        None
+    }
+
+    /// Stream the points in file order without keeping them in memory.
+    ///
+    /// The streaming writer calls this two or three times (counts, partition);
+    /// implementations must be able to restart from the beginning.
+    fn scan(
+        &mut self,
+        progress: &dyn Progress,
+        visit: &mut dyn FnMut(CloudPoint) -> Result<()>,
+    ) -> Result<()>;
+
     /// Same as [`Source::bounds`], but reports read progress.
     ///
     /// Sources that must read the whole file to get the bbox override this

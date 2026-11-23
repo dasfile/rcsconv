@@ -24,8 +24,10 @@ tiles and metadata, and a corpus checklist.
 **The standalone `rcsconv.exe` (Rust)** builds `.rcs` from `.las/.laz` and `.pts`:
 one static file, no Python and no DLLs, byte parity with the Python version
 (except GUID): [`docs/ROADMAP.md`](docs/ROADMAP.md). Reading `.rcs` in Rust is the
-next step. Very large clouds: the writer currently buffers the file in memory; the
-measured limits and the streaming design are in [`docs/STREAMING.md`](docs/STREAMING.md).
+next step. Very large clouds: the writer now builds the file on disk (streaming), with a peak
+of a few tens of megabytes regardless of the cloud size; measurements and the design
+are in [`docs/STREAMING.md`](docs/STREAMING.md). `--in-memory` keeps the reference
+writer for comparison.
 
 ## Quick start
 

@@ -125,6 +125,15 @@ struct HeaderInfo {
     has_color: bool,
 }
 
+/// Global conversion values computed once by reading the whole file.
+#[derive(Debug, Clone, Copy)]
+struct Prepared {
+    take_color: bool,
+    color_scale: f64,
+    intensity_scale: f64,
+    shift: [f64; 3],
+}
+
 /// LAS/LAZ point source.
 ///
 /// `bounds()` reads **only the header**, points are read on the first
@@ -135,6 +144,7 @@ pub struct LasSource {
     options: LasOptions,
     header: RefCell<Option<HeaderInfo>>,
     cache: RefCell<Option<Vec<CloudPoint>>>,
+    prepared: RefCell<Option<Prepared>>,
 }
 
 impl LasSource {
@@ -145,6 +155,7 @@ impl LasSource {
             options,
             header: RefCell::new(None),
             cache: RefCell::new(None),
+            prepared: RefCell::new(None),
         }
     }
 
@@ -164,6 +175,63 @@ impl LasSource {
         };
         *self.header.borrow_mut() = Some(info);
         Ok(info)
+    }
+
+    /// Colour and intensity scales plus the recentring shift, computed once.
+    fn prepare(&self, progress: &dyn Progress) -> Result<Prepared> {
+        if let Some(prepared) = *self.prepared.borrow() {
+            return Ok(prepared);
+        }
+        let info = self.header_info()?;
+        let mut reader = las::Reader::from_path(&self.path).map_err(map_error)?;
+        let mut raw: Vec<las::Point> = Vec::with_capacity(READ_CHUNK as usize);
+        let mut color_max = 0u16;
+        let mut intensity_max = 0u16;
+        let mut done = 0u64;
+        progress.stage(Stage::Read, 0, info.count);
+        loop {
+            raw.clear();
+            let read = reader
+                .read_points_into(READ_CHUNK, &mut raw)
+                .map_err(map_error)?;
+            if read == 0 {
+                break;
+            }
+            for point in &raw {
+                intensity_max = intensity_max.max(point.intensity);
+                if let Some(color) = point.color {
+                    color_max = color_max.max(color.red).max(color.green).max(color.blue);
+                }
+            }
+            done += read;
+            progress.stage(Stage::Read, done.min(info.count), info.count);
+            if progress.cancelled() {
+                return Err(Error::Cancelled);
+            }
+        }
+        let take_color = self.options.color && info.has_color;
+        let color_scale = if take_color {
+            self.options.color_scale.factor(color_max)
+        } else {
+            1.0
+        };
+        let intensity_scale = if self.options.intensity {
+            self.options.intensity_scale.factor(intensity_max)
+        } else {
+            1.0
+        };
+        let shift = match self.options.recenter {
+            Recenter::None => [0.0; 3],
+            Recenter::Center => [
+                (info.low[0] + info.high[0]) / 2.0,
+                (info.low[1] + info.high[1]) / 2.0,
+                (info.low[2] + info.high[2]) / 2.0,
+            ],
+            Recenter::Min => info.low,
+        };
+        let prepared = Prepared { take_color, color_scale, intensity_scale, shift };
+        *self.prepared.borrow_mut() = Some(prepared);
+        Ok(prepared)
     }
 
     /// Read and cache the points (a repeated call does not read the file).
@@ -279,6 +347,62 @@ fn to8(value: u16, scale: f64) -> u8 {
 }
 
 impl Source for LasSource {
+    fn bounds_hint(&self) -> Option<Bounds> {
+        match self.header_info() {
+            Ok(info) => Some(Bounds { low: info.low, high: info.high, count: info.count }),
+            Err(_) => None,
+        }
+    }
+
+    fn scan(
+        &mut self,
+        progress: &dyn Progress,
+        visit: &mut dyn FnMut(CloudPoint) -> Result<()>,
+    ) -> Result<()> {
+        let prepared = self.prepare(progress)?;
+        let info = self.header_info()?;
+        let mut reader = las::Reader::from_path(&self.path).map_err(map_error)?;
+        let mut raw: Vec<las::Point> = Vec::with_capacity(READ_CHUNK as usize);
+        let units = self.options.units;
+        let shift = prepared.shift;
+        let mut done = 0u64;
+        progress.stage(Stage::Read, 0, info.count);
+        loop {
+            raw.clear();
+            let read = reader
+                .read_points_into(READ_CHUNK, &mut raw)
+                .map_err(map_error)?;
+            if read == 0 {
+                break;
+            }
+            for point in &raw {
+                let (r, g, b) = match point.color {
+                    Some(color) if prepared.take_color => (
+                        to8(color.red, prepared.color_scale),
+                        to8(color.green, prepared.color_scale),
+                        to8(color.blue, prepared.color_scale),
+                    ),
+                    _ => (0, 0, 0),
+                };
+                visit(CloudPoint::new(
+                    (point.x - shift[0]) * units,
+                    (point.y - shift[1]) * units,
+                    (point.z - shift[2]) * units,
+                    to8(point.intensity, prepared.intensity_scale),
+                    r,
+                    g,
+                    b,
+                ))?;
+            }
+            done += read;
+            progress.stage(Stage::Read, done.min(info.count), info.count);
+            if progress.cancelled() {
+                return Err(Error::Cancelled);
+            }
+        }
+        Ok(())
+    }
+
     fn bounds(&self) -> Result<Bounds> {
         self.bounds_with(&NoProgress)
     }

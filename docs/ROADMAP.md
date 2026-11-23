@@ -175,5 +175,10 @@ partition, assembly), precomputed block sizes, temporary bucket files and atomic
 rename. The target is a constant peak of tens of megabytes regardless of the
 cloud size; byte parity with the current writer is mandatory.
 
+R9.2 is done: the CLI uses the streaming writer by default (`--in-memory` keeps the
+reference path). Peak memory on `attic_south_west.laz` (3.95 M points) fell from
+640.9 MB to 19.7 MB; the LAZ file is decompressed two or three times, so the time
+grew from 9.1 s to 22.5 s. R9.3 is the optimisation of the passes.
+
 The DLL (R8) is a packaging step and comes after R9: it runs the same core inside
 Revit.
