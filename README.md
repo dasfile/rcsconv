@@ -21,8 +21,18 @@ valuable as the code.
 Also: `.pts` subsampling, LAS/LAZ → `.pts`, comparing two `.rcs` files, inspecting
 tiles and metadata, and a corpus checklist.
 
-**The standalone `rcsconv.exe` (Rust)** builds `.rcs` from `.las/.laz` and `.pts`:
-one static file, no Python and no DLLs, byte parity with the Python version
+**The Rust product** builds `.rcs` from `.las/.laz` and `.pts`. One core crate
+(`rcs-conv`) is compiled into three independent artifacts at build time; they do
+**not** load each other at run time:
+
+```
+rcsconv.exe       CLI, static, loads no DLLs
+rcsconv-gui.exe   Win32 GUI, static, loads no DLLs
+rcsconv.dll       C ABI (crate rcsconv-ffi), loaded by the Revit add-in only
+```
+
+`rcsconv.exe` and `rcsconv-gui.exe` never load `rcsconv.dll`; the DLL exists for
+hosts that cannot link Rust (the C# add-in). Byte parity with the Python version
 (except GUID): [`docs/ROADMAP.md`](docs/ROADMAP.md). Reading `.rcs` in Rust is the
 next step. Very large clouds: the writer now builds the file on disk (streaming), with a peak
 of a few tens of megabytes regardless of the cloud size; measurements and the design

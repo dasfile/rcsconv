@@ -9,13 +9,15 @@ Roles are fixed:
 | What | Why |
 |---|---|
 | **Python (`tools/`)** | reference implementation and "oracle" for parity tests, format research environment (section 12), corpus analysis |
-| **Rust (`rust/`)** | target deliverable: one self-contained `.exe` without Python, DLLs or installation |
+| **Rust (`rust/`)** | target deliverable: `rcsconv.exe` — one self-contained `.exe` without Python or external DLLs; the same crates also build `rcsconv-gui.exe` and `rcsconv.dll` (C ABI for the add-in) |
 
 ## 1. Goal: `rcsconv.exe`
 
 The owner's product requirements:
 
-- **one file**, static linking (`crt-static`): no Python, no DLLs, no installation;
+- **one file** for the CLI, static linking (`crt-static`): no Python, no external DLLs,
+  no installation (the GUI is a second static binary; the add-in additionally loads
+  `rcsconv.dll`, built from the same crates);
 - the same command set as the Python version: `pts2rcs`, `las2rcs`, `rcs2pts`, `inspect`;
 - the result is **byte-identical** to the Python version on the reference files.
 
@@ -44,8 +46,9 @@ Rust was chosen by the owner; the reasoning is recorded so the decision is not
 revisited:
 
 - **LAZ in Rust is a ready pure crate** (`laz`, plus `las` if needed): no external
-  DLLs. In C one would have to link `laszip.dll` (breaking "one file") or write a
-  decompressor.
+  DLLs. In C one would have to depend on a foreign `laszip.dll` (breaking the
+  single-file CLI) or write a decompressor; `rcsconv.dll` is our own crate, not an
+  external dependency.
 - **Parity with Python out of the box**: `cargo test` + the same reference files;
   `serde`, `clap`, `zip`, `quick-xml` cover JSON, the CLI and `.rcp` without manual
   parsing.

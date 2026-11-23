@@ -1,7 +1,8 @@
 # Release checklist for the Rust product
 
 The target product is `rcsconv.exe` (CLI) plus `rcsconv-gui.exe` (Win32 GUI): two
-static binaries, no Python, no DLLs, no installation.
+static binaries (no Python, no DLLs, no installation). The Revit add-in additionally
+loads `rcsconv.dll`, built from the same crates; the CLI and the GUI never load it.
 
 ## 1. Version
 
