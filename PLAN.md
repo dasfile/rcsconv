@@ -338,3 +338,9 @@ English-only phase onward the journal is kept here in English.
   now looks for `rcsconv.dll` next to its own assembly, so the add-in works without
   registry settings. The CLI/GUI archive and the add-in archive are documented in
   `docs/RELEASE.md`.
+- **Release 1.0.1 prep** - all crates bumped to 1.0.1 (VERSIONINFO and
+  `rcsconv --version` verified), release notes moved into the repository
+  (`docs/releases/v1.0.0.md`, `v1.0.1.md`) and the release workflow now uses
+  `body_path`. `docs/RELEASE.md` rewritten: 73 tests, three binaries in
+  `SHA256SUMS.txt`, the add-in archive is built locally (the CI runner has no
+  `RevitAPI.dll`) and uploaded by hand. Add-in package 1.0.1 built and checked.
