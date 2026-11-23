@@ -1,6 +1,6 @@
 [package]
 name = "rcs-format"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Container layer for Autodesk ReCap .rcs (ADOCT): header, block directory, tiles, point bodies"

@@ -1,6 +1,6 @@
 [package]
 name = "rcsconv-gui"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Win32 GUI for rcsconv (.las/.laz/.pts -> ReCap .rcs)"

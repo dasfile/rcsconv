@@ -1,6 +1,6 @@
 [package]
 name = "rcs-conv"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Conversion jobs for rcsconv (shared by the CLI and the Win32 GUI)"

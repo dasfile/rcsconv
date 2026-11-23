@@ -11,7 +11,7 @@ the conversion result is identical to `rcsconv.exe` — this is checked by the t
 
 ```
 +------------------------------------------------------------------+
-| rcsconv 1.0.0 - .las/.laz/.pts -> ReCap .rcs                      |
+| rcsconv 1.0.1 - .las/.laz/.pts -> ReCap .rcs                      |
 | Drag .las/.laz/.pts into the window or press "Add files...".      |
 | +--------------------------------------------------------------+ |
 | | File            | Folder          | Size     | Status        | |
