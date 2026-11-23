@@ -24,7 +24,8 @@ tiles and metadata, and a corpus checklist.
 **The standalone `rcsconv.exe` (Rust)** builds `.rcs` from `.las/.laz` and `.pts`:
 one static file, no Python and no DLLs, byte parity with the Python version
 (except GUID): [`docs/ROADMAP.md`](docs/ROADMAP.md). Reading `.rcs` in Rust is the
-next step.
+next step. Very large clouds: the writer currently buffers the file in memory; the
+measured limits and the streaming design are in [`docs/STREAMING.md`](docs/STREAMING.md).
 
 ## Quick start
 
@@ -197,7 +198,7 @@ rust/                  Rust port: rcs-format, rcs-cloud, cloud-pts, cloud-las,
                        rcs-conv, rcsconv (CLI), rcsconv-gui (Win32 GUI)
 revit/                 Revit 2023 add-in in C#: writer + linking + API probe + tests
 docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md,
-                       ROADMAP.md, LESSONS.md, GIT.md, GUI.md, RELEASE.md
+                       ROADMAP.md, LESSONS.md, GIT.md, GUI.md, RELEASE.md, STREAMING.md
 docs-rus/              Russian mirror of the docs, local only (git-ignored)
 golden/                data and reference files (NOT in git)
 out/                   run results (NOT in git)

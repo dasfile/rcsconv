@@ -165,3 +165,15 @@ generating `.rcs` does not depend on these questions.
   R5 (`docs/RELEASE.md`).
 - Repository language: English only. The Russian mirror of the documentation lives
   in `docs-rus/` (git-ignored) on the owner's machine.
+
+## 9. Streaming writer (R9)
+
+The current writer builds the whole `.rcs` in memory (about 100 B/point for
+`.pts` and 170 B/point for `.laz`). Measurements and the design of a streaming
+writer are in [`docs/STREAMING.md`](STREAMING.md): three passes (count, bucket
+partition, assembly), precomputed block sizes, temporary bucket files and atomic
+rename. The target is a constant peak of tens of megabytes regardless of the
+cloud size; byte parity with the current writer is mandatory.
+
+The DLL (R8) is a packaging step and comes after R9: it runs the same core inside
+Revit.

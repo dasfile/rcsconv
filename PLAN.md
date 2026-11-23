@@ -258,6 +258,15 @@ English-only phase onward the journal is kept here in English.
   new name"; if the write still fails because Revit holds the file, the command
   writes `<name>-2.rcs` (`-3`, ...) and reports the actual path. The shell folder
   picker (SHBrowseForFolderW) is removed.
+- **R9.0 measurements** - the in-memory writer peaks at 640.9 MB for
+  `attic_south_west.laz` (3,953,680 points, 79.52 MB output, 9.09 s) and at
+  372.5 MB for the same cloud as `.pts` (7.28 s); `entrance.laz` (2.58 M points)
+  peaks at 420.9 MB. Extrapolation: 20 M points need 2-3.4 GB, 100 M need 10-17 GB.
+- **R9.1 design** - `docs/STREAMING.md`: block sizes are known in advance, so the
+  writer can stream; three passes (count, bucket partition, assembly), bounded
+  bucket buffers, temporary files in the output folder, atomic rename. Byte parity
+  with the current writer remains the acceptance criterion. Implementation is R9.2;
+  the DLL (R8) follows it.
 - **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
   instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
   Revit assemblies plus assemblies already loaded in the Revit process, so a
