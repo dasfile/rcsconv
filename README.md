@@ -99,6 +99,22 @@ The linker may warn `.rsrc merge failure: multiple non-default manifests` — th
 normal: the exe has two manifests (ours and the built-in CRT one), but
 `FindResource(1, RT_MANIFEST)` returns ours (verified, `out/diag/pe_resources.py`).
 
+### Revit add-in: `revit/RcsConvRevit.cs`
+
+The Revit 2023 add-in builds the `.rcs` itself in C# (a direct implementation of
+`docs/RCS-FORMAT.md` section 9.1, no ReCap, no template, no `rcsconv.exe`) and links
+it into the model as a point cloud. Source, the API probe and the byte-level test
+harness are in `revit/`; the details are in [`docs/REVIT-PLUGIN.md`](docs/REVIT-PLUGIN.md).
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\revit\run-tests.ps1
+```
+
+The C# writer is verified byte for byte against the Rust converter on
+`probe6`, `test1`, `test2`, `level_7` (324,680 points), `level_7_n19099`,
+`attic_south_west` (3,953,680 points, 79.5 MB), `entrance` and `roof_1_stairwell`.
+`.pts` is supported; `.las` is next; `.laz` is out of scope for the C# side.
+
 ### Toolchain: portable installation, no `rustup`
 
 `rustup` is not required: the toolchain is installed **by copying** an unpacked
@@ -179,6 +195,7 @@ tools/                 parser, writer, converters, CLI (Python reference)
 tools/tests/           85 tests (unittest)
 rust/                  Rust port: rcs-format, rcs-cloud, cloud-pts, cloud-las,
                        rcs-conv, rcsconv (CLI), rcsconv-gui (Win32 GUI)
+revit/                 Revit 2023 add-in in C#: writer + linking + API probe + tests
 docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md,
                        ROADMAP.md, LESSONS.md, GIT.md, GUI.md, RELEASE.md
 docs-rus/              Russian mirror of the docs, local only (git-ignored)

@@ -1,0 +1,1109 @@
+// =============================================================================
+// RcsConvRevit - build a ReCap .rcs from .pts (and later .las) inside Revit
+// =============================================================================
+// The writer follows the published specification (docs/RCS-FORMAT.md, section
+// 9.1) and does not need ReCap, a template or any external converter. The file
+// layout is the Unified RCS dialect v5 produced by ReCap 2020 (6.0.0.110).
+//
+// Environment : Autodesk Revit 2023 (.NET Framework 4.8), C# 5
+// Constraints : one .cs file, no NuGet, no external DLLs (CsHotLoader compiles
+//               the file in memory and references only Revit assemblies and the
+//               assemblies already loaded in the Revit process).
+//
+// Structure:
+//   namespace RcsConv.Core  - pure .NET writer (no Revit types); testable with
+//                             csc outside Revit (revit/tests/RcsWriterTests.cs)
+//   namespace IvanTools     - the IExternalCommand: pick a file, build the .rcs,
+//                             create PointCloudType + PointCloudInstance
+//
+// Running:
+//   1) via IvanTools.HotLoader - pick this file, it is compiled and executed;
+//   2) or compile RcsConvRevit.dll and add an <AddIn> entry to IvanTools.addin.
+//
+// License: MIT
+// =============================================================================
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Text;
+using Autodesk.Revit.Attributes;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using RcsConv.Core;
+
+namespace RcsConv.Core
+{
+    /// <summary>A cloud point: metres, intensity and colour 0..255.</summary>
+    public struct CloudPoint
+    {
+        public double X;
+        public double Y;
+        public double Z;
+        public byte Intensity;
+        public byte R;
+        public byte G;
+        public byte B;
+
+        public CloudPoint(double x, double y, double z, byte intensity, byte r, byte g, byte b)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+            Intensity = intensity;
+            R = r;
+            G = g;
+            B = b;
+        }
+    }
+
+    /// <summary>How to build the .rcs.</summary>
+    public sealed class BuildOptions
+    {
+        /// <summary>Points per tile limit (1..65536), the u16 index limit by default.</summary>
+        public uint MaxPerTile = 65536;
+
+        /// <summary>Fixed GUID like "{8_4_4_4_12}"; null means a random uuid4.</summary>
+        public string Guid;
+
+        /// <summary>Metadata mode: "generated" (default) or "minimal".</summary>
+        public string Metadata = "generated";
+    }
+
+    /// <summary>What was produced (for the report).</summary>
+    public sealed class BuildStats
+    {
+        public long Points;
+        public int Tiles;
+        public int Depth;
+        public double TileEdge;
+        public int MaxPointsPerTile;
+        public int Size;
+        public int MetadataWords;
+        public int MetadataRecords;
+    }
+
+    /// <summary>Python-compatible rounding (banker's rounding, decimal digits).</summary>
+    public static class PyMath
+    {
+        /// <summary>Round to the nearest integer, halves to even (Python round(x)).</summary>
+        public static double RoundHalfEven(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return value;
+            double floor = Math.Floor(value);
+            double diff = value - floor;
+            if (diff > 0.5)
+                return floor + 1.0;
+            if (diff < 0.5)
+                return floor;
+            return (floor % 2.0 == 0.0) ? floor : floor + 1.0;
+        }
+
+        /// <summary>
+        /// Round to a number of decimal places the way Python round(x, digits) does:
+        /// the exact binary value of the double is rounded to the nearest decimal with
+        /// halves to even. .NET Framework formatting is not usable here — it goes
+        /// through 15 significant digits, so 3.6434999999999999 (a double just below
+        /// x.xxx5) is printed as "3.6435" and rounded up, shifting the result by 1 mm.
+        /// The decomposition below is exact: value = mantissa * 2^exponent.
+        /// </summary>
+        public static double RoundDigits(double value, int digits)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value))
+                return value;
+            if (digits < 0 || digits > 9)
+                return value;
+            if (value == 0.0)
+                return value;
+
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            bool negative = bits < 0;
+            bits &= 0x7FFFFFFFFFFFFFFF;
+            int exponentBits = (int)((bits >> 52) & 0x7FF);
+            ulong mantissa = (ulong)(bits & 0xFFFFFFFFFFFFFL);
+            int exponent;
+            if (exponentBits == 0)
+            {
+                exponent = -1074;
+            }
+            else
+            {
+                mantissa |= 1UL << 52;
+                exponent = exponentBits - 1075;
+            }
+
+            ulong scale = 1;
+            for (int index = 0; index < digits; index++)
+                scale *= 10;
+
+            double result;
+            if (exponent >= 0)
+            {
+                result = value; // already an integer, nothing to round
+            }
+            else
+            {
+                int shift = -exponent;
+                if (mantissa > ulong.MaxValue / scale)
+                    return value;
+                ulong product = mantissa * scale;
+                ulong rounded;
+                if (shift > 63)
+                {
+                    rounded = product > (1UL << 63) ? 1UL : 0UL;
+                }
+                else
+                {
+                    rounded = product >> shift;
+                    ulong mask = (1UL << shift) - 1;
+                    ulong remainder = product & mask;
+                    ulong half = 1UL << (shift - 1);
+                    if (remainder > half || (remainder == half && (rounded & 1UL) == 1UL))
+                        rounded++;
+                }
+                result = rounded / (double)scale;
+            }
+            return negative ? -result : result;
+        }
+    }
+}
+
+namespace RcsConv.Core
+{
+    /// <summary>Reading .pts (Leica Cyclone text): x y z [intensity] r g b.</summary>
+    public static class PtsReader
+    {
+        /// <summary>Read every point of the file, keeping file order.</summary>
+        public static CloudPoint[] Read(string path)
+        {
+            List<CloudPoint> points = new List<CloudPoint>(1 << 16);
+            using (StreamReader reader = new StreamReader(path, Encoding.UTF8, true, 1 << 16))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                {
+                    CloudPoint point;
+                    if (TryParseLine(line, out point))
+                        points.Add(point);
+                }
+            }
+            return points.ToArray();
+        }
+
+        /// <summary>Parse one .pts line; false when it is not a point (header, garbage).</summary>
+        public static bool TryParseLine(string line, out CloudPoint point)
+        {
+            point = new CloudPoint();
+            if (line == null)
+                return false;
+            string[] parts = line.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3)
+                return false;
+
+            double[] xyz = new double[3];
+            for (int axis = 0; axis < 3; axis++)
+            {
+                if (!double.TryParse(parts[axis], NumberStyles.Float, CultureInfo.InvariantCulture, out xyz[axis]))
+                    return false;
+            }
+
+            long[] numbers = new long[Math.Max(0, parts.Length - 3)];
+            for (int index = 0; index < numbers.Length; index++)
+            {
+                double value;
+                if (double.TryParse(parts[index + 3], NumberStyles.Float, CultureInfo.InvariantCulture, out value))
+                    numbers[index] = (long)PyMath.RoundHalfEven(value);
+                else
+                    numbers[index] = 0;
+            }
+
+            long intensity;
+            long r;
+            long g;
+            long b;
+            switch (numbers.Length)
+            {
+                case 0:
+                    intensity = 0; r = 0; g = 0; b = 0;
+                    break;
+                case 1:
+                case 2:
+                    intensity = numbers[0]; r = 0; g = 0; b = 0;
+                    break;
+                case 3:
+                    intensity = 0; r = numbers[0]; g = numbers[1]; b = numbers[2];
+                    break;
+                default:
+                    intensity = numbers[0]; r = numbers[1]; g = numbers[2]; b = numbers[3];
+                    break;
+            }
+
+            point = new CloudPoint(
+                xyz[0], xyz[1], xyz[2],
+                Clamp8(intensity), Clamp8(r), Clamp8(g), Clamp8(b));
+            return true;
+        }
+
+        private static byte Clamp8(long value)
+        {
+            if (value < 0) return 0;
+            if (value > 255) return 255;
+            return (byte)value;
+        }
+    }
+}
+namespace RcsConv.Core
+{
+    /// <summary>Byte layout constants and little-endian writers.</summary>
+    public static class RcsFormat
+    {
+        public const int HeaderEnd = 0x135;
+        public const int GuidOffset = 0xE3;
+        public const int GuidLength = 38;
+        public const int BlockCountOffset = 0x129;
+        public const int FirstBlockOffset = 0x1812D;
+        public const uint ChunkId = 131;
+        public const uint ChunkVersion = 5;
+        public static readonly byte[] Magic = { 0x41, 0x44, 0x4F, 0x43, 0x54, 0x00, 0x00, 0x00 };
+
+        public static void AddU16(List<byte> buffer, ushort value)
+        {
+            buffer.Add((byte)value);
+            buffer.Add((byte)(value >> 8));
+        }
+
+        public static void AddU32(List<byte> buffer, uint value)
+        {
+            buffer.Add((byte)value);
+            buffer.Add((byte)(value >> 8));
+            buffer.Add((byte)(value >> 16));
+            buffer.Add((byte)(value >> 24));
+        }
+
+        public static void AddU64(List<byte> buffer, ulong value)
+        {
+            for (int shift = 0; shift < 64; shift += 8)
+                buffer.Add((byte)(value >> shift));
+        }
+
+        public static void AddF32(List<byte> buffer, float value)
+        {
+            byte[] bytes = BitConverter.GetBytes(value);
+            if (!BitConverter.IsLittleEndian)
+                Array.Reverse(bytes);
+            buffer.AddRange(bytes);
+        }
+
+        public static void AddF64(List<byte> buffer, double value)
+        {
+            AddU64(buffer, (ulong)BitConverter.DoubleToInt64Bits(value));
+        }
+
+        internal static void PutU32(byte[] target, int offset, uint value)
+        {
+            target[offset] = (byte)value;
+            target[offset + 1] = (byte)(value >> 8);
+            target[offset + 2] = (byte)(value >> 16);
+            target[offset + 3] = (byte)(value >> 24);
+        }
+
+        internal static void PutU64(byte[] target, int offset, ulong value)
+        {
+            for (int shift = 0; shift < 64; shift += 8)
+                target[offset + shift / 8] = (byte)(value >> shift);
+        }
+
+        internal static void PutF64(byte[] target, int offset, double value)
+        {
+            PutU64(target, offset, (ulong)BitConverter.DoubleToInt64Bits(value));
+        }
+
+        internal static void PutF64x3(byte[] target, int offset, double[] value)
+        {
+            PutF64(target, offset, value[0]);
+            PutF64(target, offset + 8, value[1]);
+            PutF64(target, offset + 16, value[2]);
+        }
+    }
+
+    /// <summary>GUID in the ReCap form: {8_4_4_4_12}, lower case.</summary>
+    public static class RecapGuid
+    {
+        /// <summary>A random uuid4 GUID.</summary>
+        public static string New()
+        {
+            string hex = Guid.NewGuid().ToString("N");
+            return Format(hex);
+        }
+
+        /// <summary>Validate and normalise a user GUID (hyphens are accepted).</summary>
+        public static string Normalize(string text)
+        {
+            if (text == null)
+                throw new ArgumentNullException("text");
+            string value = text.Trim();
+            if (value.Length < 2 || value[0] != '{' || value[value.Length - 1] != '}')
+                throw new FormatException("GUID must be in the {8_4_4_4_12} format: " + text);
+            string body = value.Substring(1, value.Length - 2);
+            string[] groups = body.Split(new char[] { '-', '_' });
+            if (groups.Length != 5 || groups[0].Length != 8 || groups[1].Length != 4 ||
+                groups[2].Length != 4 || groups[3].Length != 4 || groups[4].Length != 12)
+                throw new FormatException("GUID must be in the {8_4_4_4_12} format: " + text);
+
+            StringBuilder hex = new StringBuilder(32);
+            foreach (string group in groups)
+            {
+                foreach (char symbol in group)
+                {
+                    if (!Uri.IsHexDigit(symbol))
+                        throw new FormatException("GUID contains a non-hex character: " + text);
+                    hex.Append(char.ToLowerInvariant(symbol));
+                }
+            }
+            return Format(hex.ToString());
+        }
+
+        private static string Format(string hex)
+        {
+            return "{" + hex.Substring(0, 8) + "_" + hex.Substring(8, 4) + "_" +
+                   hex.Substring(12, 4) + "_" + hex.Substring(16, 4) + "_" +
+                   hex.Substring(20, 12) + "}";
+        }
+    }
+}
+namespace RcsConv.Core
+{
+    /// <summary>Fixed blocks: header, properties (type 0), metadata (type 1).</summary>
+    public static class RcsBlocks
+    {
+        /// <summary>Compose the 0x135-byte header.</summary>
+        public static byte[] BuildHeader(double[] center, double[] extent, double half,
+                                         ulong count, string guid, int blockCount)
+        {
+            byte[] header = new byte[RcsFormat.HeaderEnd];
+            Array.Copy(RcsFormat.Magic, header, 8);
+            RcsFormat.PutU32(header, 0x04, 84);
+            RcsFormat.PutU32(header, 0x08, 3);
+            RcsFormat.PutU32(header, 0x0C, 2);
+            RcsFormat.PutF64x3(header, 0x10, center);
+            RcsFormat.PutF64x3(header, 0x28, new double[] { 0, 0, 0 });
+            RcsFormat.PutF64x3(header, 0x40, new double[] { 1, 1, 1 });
+            RcsFormat.PutF64x3(header, 0x58, center);
+            RcsFormat.PutF64x3(header, 0x70, new double[] { -half, -half, -half });
+            RcsFormat.PutF64x3(header, 0x88, new double[] { half, half, half });
+            RcsFormat.PutF64x3(header, 0xA0, new double[] { -extent[0], -extent[1], -extent[2] });
+            RcsFormat.PutF64x3(header, 0xB8, extent);
+            RcsFormat.PutU32(header, 0xD0, RcsFormat.ChunkId);
+            RcsFormat.PutU32(header, 0xD4, RcsFormat.ChunkVersion);
+            RcsFormat.PutU64(header, 0xD8, count);
+            header[0xE0] = 1;
+            header[0xE1] = 1;
+            header[0xE2] = 0;
+            byte[] guidBytes = Encoding.ASCII.GetBytes(guid);
+            if (guidBytes.Length != RcsFormat.GuidLength)
+                throw new ArgumentException("GUID length must be 38 bytes");
+            Array.Copy(guidBytes, 0, header, RcsFormat.GuidOffset, RcsFormat.GuidLength);
+            RcsFormat.PutU32(header, RcsFormat.BlockCountOffset, (uint)blockCount);
+            RcsFormat.PutU32(header, RcsFormat.BlockCountOffset + 4, 2);
+            return header;
+        }
+
+        /// <summary>Properties block (type 0), 134 bytes, reference stubs.</summary>
+        public static byte[] BuildProperties()
+        {
+            List<byte> block = new List<byte>(134);
+            RcsFormat.AddU32(block, 10);
+            AddTlv(block, 100, new byte[] { 1 });
+            AddF32Tlv(block, 101, -999999.0f);
+            AddF32Tlv(block, 102, 999999.0f);
+            AddU32Tlv(block, 201, 0);
+            AddU32Tlv(block, 202, 0);
+            AddF64Tlv(block, 203, Math.PI);
+            AddF64Tlv(block, 204, -Math.PI);
+            AddF64Tlv(block, 205, Math.PI / 2.0);
+            AddF64Tlv(block, 206, -Math.PI / 2.0);
+            AddTlv(block, 301, new byte[] { 0 });
+            return block.ToArray();
+        }
+
+        /// <summary>Metadata block (type 1) from the level words.</summary>
+        public static byte[] BuildMetadata(int[] words)
+        {
+            if (words.Length > 32)
+                throw new ArgumentException("The metadata header holds at most 32 words");
+            int records = 0;
+            foreach (int word in words)
+                records += word;
+
+            List<byte> block = new List<byte>(128 + 72 * records);
+            for (int index = 0; index < 32; index++)
+                RcsFormat.AddU32(block, index < words.Length ? (uint)words[index] : 0u);
+            for (int index = 0; index < records; index++)
+            {
+                RcsFormat.AddU32(block, 0);
+                RcsFormat.AddU32(block, 0);
+                RcsFormat.AddF64(block, double.MaxValue);
+                RcsFormat.AddF64(block, double.MaxValue);
+                RcsFormat.AddF64(block, double.MaxValue);
+                RcsFormat.AddF64(block, -double.MaxValue);
+                RcsFormat.AddF64(block, -double.MaxValue);
+                RcsFormat.AddF64(block, -double.MaxValue);
+                RcsFormat.AddU32(block, 0);
+                RcsFormat.AddU32(block, uint.MaxValue);
+                RcsFormat.AddU32(block, uint.MaxValue);
+                RcsFormat.AddU32(block, 0);
+            }
+            return block.ToArray();
+        }
+
+        private static void AddTlv(List<byte> block, uint id, byte[] payload)
+        {
+            RcsFormat.AddU32(block, id);
+            RcsFormat.AddU32(block, (uint)payload.Length);
+            block.AddRange(payload);
+        }
+
+        private static void AddU32Tlv(List<byte> block, uint id, uint value)
+        {
+            List<byte> payload = new List<byte>(4);
+            RcsFormat.AddU32(payload, value);
+            AddTlv(block, id, payload.ToArray());
+        }
+
+        private static void AddF32Tlv(List<byte> block, uint id, float value)
+        {
+            List<byte> payload = new List<byte>(4);
+            RcsFormat.AddF32(payload, value);
+            AddTlv(block, id, payload.ToArray());
+        }
+
+        private static void AddF64Tlv(List<byte> block, uint id, double value)
+        {
+            List<byte> payload = new List<byte>(8);
+            RcsFormat.AddF64(payload, value);
+            AddTlv(block, id, payload.ToArray());
+        }
+    }
+}
+namespace RcsConv.Core
+{
+    /// <summary>Octree cell: per-axis indices at a given depth.</summary>
+    public struct Cell : IEquatable<Cell>
+    {
+        public long X;
+        public long Y;
+        public long Z;
+
+        public Cell(long x, long y, long z)
+        {
+            X = x;
+            Y = y;
+            Z = z;
+        }
+
+        public bool Equals(Cell other)
+        {
+            return X == other.X && Y == other.Y && Z == other.Z;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is Cell && Equals((Cell)obj);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 31 + X.GetHashCode();
+                hash = hash * 31 + Y.GetHashCode();
+                hash = hash * 31 + Z.GetHashCode();
+                return hash;
+            }
+        }
+    }
+
+    /// <summary>Fixed-depth octree: the same rules as tools/rcs_build.py.</summary>
+    public static class Octree
+    {
+        public const double TileEdge = 2.25;
+        public const double BaseHalf = 2.25;
+        public const int MaxDepth = 20;
+
+        /// <summary>Smallest 2.25*2^k that covers the bbox half-extent.</summary>
+        public static double RootHalf(double[] halfExtent)
+        {
+            double need = 0.0;
+            foreach (double value in halfExtent)
+                need = Math.Max(need, Math.Abs(value));
+            double half = BaseHalf;
+            while (half < need - 1e-9)
+                half *= 2.0;
+            return half;
+        }
+
+        /// <summary>Depth at which the tile edge is 2.25 m (the ReCap rule).</summary>
+        public static int RecapDepth(double half)
+        {
+            double value = Math.Log(2.0 * half / TileEdge, 2.0);
+            double rounded = PyMath.RoundHalfEven(value);
+            if (rounded <= 0.0)
+                return 0;
+            return (int)rounded;
+        }
+
+        /// <summary>Cell index at the given depth.</summary>
+        public static Cell CellOf(double[] local, double half, int depth)
+        {
+            long side = 1L << depth;
+            double edge = (2.0 * half) / side;
+            long[] cell = new long[3];
+            for (int axis = 0; axis < 3; axis++)
+            {
+                double raw = Math.Floor((local[axis] + half) / edge);
+                double clamped = Math.Max(0.0, Math.Min(side - 1, raw));
+                cell[axis] = (long)clamped;
+            }
+            return new Cell(cell[0], cell[1], cell[2]);
+        }
+
+        /// <summary>DFS order key: octant indices from root to leaf (x + 2y + 4z).</summary>
+        public static byte[] SubtreeKey(Cell cell, int depth)
+        {
+            byte[] key = new byte[depth];
+            int position = 0;
+            for (int level = depth; level >= 1; level--)
+            {
+                long mask = 1L << (level - 1);
+                int x = (cell.X & mask) != 0 ? 1 : 0;
+                int y = (cell.Y & mask) != 0 ? 1 : 0;
+                int z = (cell.Z & mask) != 0 ? 1 : 0;
+                key[position++] = (byte)(x + 2 * y + 4 * z);
+            }
+            return key;
+        }
+
+        /// <summary>Increase the depth until no cell holds more than maxPerTile points.</summary>
+        public static int ChooseDepth(CloudPoint[] points, double[] center, double half, uint maxPerTile)
+        {
+            int depth = RecapDepth(half);
+            while (depth <= MaxDepth)
+            {
+                Dictionary<Cell, int> seen = new Dictionary<Cell, int>(points.Length);
+                bool collision = false;
+                foreach (CloudPoint point in points)
+                {
+                    double[] local = { point.X - center[0], point.Y - center[1], point.Z - center[2] };
+                    Cell cell = CellOf(local, half, depth);
+                    int counter;
+                    seen.TryGetValue(cell, out counter);
+                    counter++;
+                    seen[cell] = counter;
+                    if (counter > maxPerTile)
+                    {
+                        collision = true;
+                        break;
+                    }
+                }
+                if (!collision)
+                    return depth;
+                depth++;
+            }
+            throw new InvalidOperationException(
+                "Cannot split the points into cells without duplicates (depth limit " + MaxDepth + ")");
+        }
+
+        /// <summary>Number of occupied tiles on every level 0..depth.</summary>
+        public static int[] LevelCounts(List<Cell> cells, int depth)
+        {
+            int[] counts = new int[depth + 1];
+            for (int level = 0; level <= depth; level++)
+            {
+                int shift = depth - level;
+                HashSet<Cell> parents = new HashSet<Cell>();
+                foreach (Cell cell in cells)
+                    parents.Add(new Cell(cell.X >> shift, cell.Y >> shift, cell.Z >> shift));
+                counts[level] = parents.Count;
+            }
+            return counts;
+        }
+    }
+}
+namespace RcsConv.Core
+{
+    /// <summary>Builds a Unified RCS (.rcs) file from a point set — see docs/RCS-FORMAT.md 9.1.</summary>
+    public static class RcsWriter
+    {
+        /// <summary>Build the file bytes; stats describe what was produced.</summary>
+        public static byte[] Build(CloudPoint[] points, BuildOptions options, out BuildStats stats)
+        {
+            if (points == null || points.Length == 0)
+                throw new InvalidOperationException("The source contains no points");
+            if (options == null)
+                options = new BuildOptions();
+            if (options.MaxPerTile < 1 || options.MaxPerTile > 65536)
+                throw new ArgumentOutOfRangeException("MaxPerTile",
+                    "max points per tile must be in 1..65536");
+
+            double[] low = { double.MaxValue, double.MaxValue, double.MaxValue };
+            double[] high = { double.MinValue, double.MinValue, double.MinValue };
+            foreach (CloudPoint point in points)
+            {
+                low[0] = Math.Min(low[0], point.X);
+                low[1] = Math.Min(low[1], point.Y);
+                low[2] = Math.Min(low[2], point.Z);
+                high[0] = Math.Max(high[0], point.X);
+                high[1] = Math.Max(high[1], point.Y);
+                high[2] = Math.Max(high[2], point.Z);
+            }
+
+            double[] center =
+            {
+                (low[0] + high[0]) / 2.0,
+                (low[1] + high[1]) / 2.0,
+                (low[2] + high[2]) / 2.0
+            };
+            double[] extent = new double[3];
+            for (int axis = 0; axis < 3; axis++)
+                extent[axis] = PyMath.RoundDigits((high[axis] - low[axis]) / 2.0, 3);
+            double half = Octree.RootHalf(extent);
+            int depth = Octree.ChooseDepth(points, center, half, options.MaxPerTile);
+            double edge = (2.0 * half) / (double)(1L << depth);
+
+            // Grouping: cell -> point indices in file order.
+            Dictionary<Cell, List<int>> cells = new Dictionary<Cell, List<int>>(points.Length);
+            for (int index = 0; index < points.Length; index++)
+            {
+                CloudPoint point = points[index];
+                double[] local = { point.X - center[0], point.Y - center[1], point.Z - center[2] };
+                Cell cell = Octree.CellOf(local, half, depth);
+                List<int> list;
+                if (!cells.TryGetValue(cell, out list))
+                {
+                    list = new List<int>();
+                    cells.Add(cell, list);
+                }
+                list.Add(index);
+            }
+
+            // DFS tile order.
+            List<TileEntry> order = new List<TileEntry>(cells.Count);
+            foreach (KeyValuePair<Cell, List<int>> pair in cells)
+                order.Add(new TileEntry(Octree.SubtreeKey(pair.Key, depth), pair.Key));
+            order.Sort(TileEntry.Compare);
+
+            List<byte> records = new List<byte>(368 * order.Count);
+            List<byte> payloads = new List<byte>(20 * points.Length);
+            List<Cell> cellList = new List<Cell>(order.Count);
+            int maxPointsPerTile = 0;
+
+            foreach (TileEntry entry in order)
+            {
+                List<int> indices = cells[entry.Cell];
+                cellList.Add(entry.Cell);
+                maxPointsPerTile = Math.Max(maxPointsPerTile, indices.Count);
+                double[] cubeMin =
+                {
+                    -half + entry.Cell.X * edge,
+                    -half + entry.Cell.Y * edge,
+                    -half + entry.Cell.Z * edge
+                };
+                double[] cubeMax = { cubeMin[0] + edge, cubeMin[1] + edge, cubeMin[2] + edge };
+                WriteTile(records, payloads, points, indices, center, cubeMin, cubeMax);
+            }
+
+            List<byte> block3 = new List<byte>(8 + records.Count);
+            RcsFormat.AddU64(block3, (ulong)order.Count);
+            block3.AddRange(records);
+
+            int[] words = Octree.LevelCounts(cellList, depth);
+            byte[] metadata = RcsBlocks.BuildMetadata(words);
+            byte[] properties = RcsBlocks.BuildProperties();
+
+            string guid = string.IsNullOrEmpty(options.Guid)
+                ? RecapGuid.New()
+                : RecapGuid.Normalize(options.Guid);
+
+            List<BlockEntry> blocks = new List<BlockEntry>(4);
+            blocks.Add(new BlockEntry(3, block3.ToArray()));
+            blocks.Add(new BlockEntry(1, metadata));
+            blocks.Add(new BlockEntry(11, payloads.ToArray()));
+            blocks.Add(new BlockEntry(0, properties));
+
+            byte[] header = RcsBlocks.BuildHeader(center, extent, half, (ulong)points.Length, guid, blocks.Count);
+            byte[] file = Assemble(header, blocks);
+
+            int metadataRecords = 0;
+            foreach (int word in words)
+                metadataRecords += word;
+
+            stats = new BuildStats();
+            stats.Points = points.Length;
+            stats.Tiles = order.Count;
+            stats.Depth = depth;
+            stats.TileEdge = edge;
+            stats.MaxPointsPerTile = maxPointsPerTile;
+            stats.Size = file.Length;
+            stats.MetadataWords = words.Length;
+            stats.MetadataRecords = metadataRecords;
+            return file;
+        }
+
+        private static void WriteTile(List<byte> records, List<byte> payloads, CloudPoint[] points,
+                                      List<int> indices, double[] center, double[] cubeMin, double[] cubeMax)
+        {
+            double[] low = { double.MaxValue, double.MaxValue, double.MaxValue };
+            double[] high = { double.MinValue, double.MinValue, double.MinValue };
+            foreach (int index in indices)
+            {
+                CloudPoint point = points[index];
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    double local = Axis(point, axis) - center[axis];
+                    low[axis] = Math.Min(low[axis], local);
+                    high[axis] = Math.Max(high[axis], local);
+                }
+            }
+
+            double[] bboxMin = new double[3];
+            double[] bboxMax = new double[3];
+            for (int axis = 0; axis < 3; axis++)
+            {
+                bboxMin[axis] = PyMath.RoundDigits(low[axis], 3);
+                bboxMax[axis] = PyMath.RoundDigits(high[axis], 3);
+            }
+
+            int count = indices.Count;
+            int payloadLength = 4 * count + 16 * count;
+
+            for (int number = 0; number < count; number++)
+            {
+                RcsFormat.AddU16(payloads, (ushort)number);
+                payloads.Add(0);
+                payloads.Add(8);
+            }
+
+            foreach (int index in indices)
+            {
+                CloudPoint point = points[index];
+                for (int axis = 0; axis < 3; axis++)
+                {
+                    double delta = PyMath.RoundDigits(Axis(point, axis) - center[axis] - cubeMin[axis], 3);
+                    double scale = axis == 0 ? 1000.0 : (axis == 1 ? 4000.0 : 16000.0);
+                    double quantized = PyMath.RoundHalfEven(delta * scale);
+                    if (!(quantized >= 0.0 && quantized <= 65535.0))
+                        throw new InvalidOperationException(string.Format(
+                            CultureInfo.InvariantCulture,
+                            "Point {0} on axis {1} ({2}) does not fit into the tile cube",
+                            index, axis, Axis(point, axis)));
+                    RcsFormat.AddU16(payloads, (ushort)quantized);
+                }
+                payloads.Add(0);
+                payloads.Add(0);
+                payloads.Add(point.Intensity);
+                payloads.Add(point.B);
+                payloads.Add(point.G);
+                payloads.Add(point.R);
+                payloads.Add(0);
+                payloads.Add(0);
+                payloads.Add(0);
+                payloads.Add(0);
+            }
+
+            AddTriple(records, cubeMin);
+            AddTriple(records, cubeMax);
+            AddTriple(records, bboxMin);
+            AddTriple(records, bboxMax);
+            RcsFormat.AddU32(records, 1);
+            RcsFormat.AddU32(records, (uint)count);
+            RcsFormat.AddU32(records, (uint)payloadLength);
+            for (int word = 0; word < 5; word++)
+                RcsFormat.AddU32(records, 0);
+            for (int word = 0; word < 60; word++)
+                RcsFormat.AddU32(records, word == 27 ? (uint)count : 0u);
+        }
+
+        private static byte[] Assemble(byte[] header, List<BlockEntry> blocks)
+        {
+            int directoryEnd = RcsFormat.HeaderEnd + 24 * blocks.Count;
+            if (directoryEnd > RcsFormat.FirstBlockOffset)
+                throw new InvalidOperationException("The block directory does not fit before the first block");
+
+            List<byte> file = new List<byte>(RcsFormat.FirstBlockOffset + 32);
+            file.AddRange(header);
+            ulong offset = RcsFormat.FirstBlockOffset;
+            foreach (BlockEntry block in blocks)
+            {
+                RcsFormat.AddU64(file, offset);
+                RcsFormat.AddU64(file, (ulong)block.Data.Length);
+                RcsFormat.AddU64(file, block.Type);
+                offset += (ulong)block.Data.Length;
+            }
+            while (file.Count < RcsFormat.FirstBlockOffset)
+                file.Add(0);
+            foreach (BlockEntry block in blocks)
+                file.AddRange(block.Data);
+            return file.ToArray();
+        }
+
+        private static double Axis(CloudPoint point, int axis)
+        {
+            return axis == 0 ? point.X : (axis == 1 ? point.Y : point.Z);
+        }
+
+        private static void AddTriple(List<byte> buffer, double[] value)
+        {
+            RcsFormat.AddF64(buffer, value[0]);
+            RcsFormat.AddF64(buffer, value[1]);
+            RcsFormat.AddF64(buffer, value[2]);
+        }
+
+        private sealed class BlockEntry
+        {
+            public readonly ulong Type;
+            public readonly byte[] Data;
+
+            public BlockEntry(ulong type, byte[] data)
+            {
+                Type = type;
+                Data = data;
+            }
+        }
+
+        private sealed class TileEntry
+        {
+            public readonly byte[] Key;
+            public readonly Cell Cell;
+
+            public TileEntry(byte[] key, Cell cell)
+            {
+                Key = key;
+                Cell = cell;
+            }
+
+            public static int Compare(TileEntry left, TileEntry right)
+            {
+                int length = Math.Min(left.Key.Length, right.Key.Length);
+                for (int index = 0; index < length; index++)
+                {
+                    if (left.Key[index] != right.Key[index])
+                        return left.Key[index] < right.Key[index] ? -1 : 1;
+                }
+                return left.Key.Length.CompareTo(right.Key.Length);
+            }
+        }
+    }
+}
+
+namespace IvanTools
+{
+    /// <summary>
+    /// Build a .rcs from .pts/.las with the in-process writer and link it into the
+    /// active document as a point cloud.
+    /// </summary>
+    [Transaction(TransactionMode.Manual)]
+    [Regeneration(RegenerationOption.Manual)]
+    public class RcsConvRevit : IExternalCommand
+    {
+        private const string Caption = "rcsconv - Point Cloud";
+
+        public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
+        {
+            if (commandData == null || commandData.Application == null)
+                return Result.Cancelled;
+            UIDocument uidoc = commandData.Application.ActiveUIDocument;
+            if (uidoc == null || uidoc.Document == null)
+            {
+                TaskDialog.Show(Caption, "No active document.");
+                return Result.Cancelled;
+            }
+
+            string input = PickInput();
+            if (input == null)
+                return Result.Cancelled;
+
+            string extension = Path.GetExtension(input).ToLowerInvariant();
+            if (extension == ".laz")
+            {
+                TaskDialog.Show(Caption,
+                    "LAZ is not supported by this version.\n\n" +
+                    "Save the cloud as .las or .pts and run the command again.");
+                return Result.Cancelled;
+            }
+            if (extension != ".pts" && extension != ".las")
+            {
+                TaskDialog.Show(Caption, "Unsupported input: " + input);
+                return Result.Cancelled;
+            }
+            if (extension == ".las")
+            {
+                TaskDialog.Show(Caption, "LAS support is not implemented yet in this build.");
+                return Result.Cancelled;
+            }
+
+            CloudPoint[] points;
+            try
+            {
+                points = PtsReader.Read(input);
+            }
+            catch (Exception error)
+            {
+                TaskDialog.Show(Caption, "Cannot read the input:\n\n" + error.Message);
+                return Result.Failed;
+            }
+            if (points.Length == 0)
+            {
+                TaskDialog.Show(Caption, "The source contains no points.");
+                return Result.Cancelled;
+            }
+
+            string cache;
+            BuildStats stats = null;
+            try
+            {
+                cache = CachePath(input);
+                Directory.CreateDirectory(Path.GetDirectoryName(cache));
+                if (!File.Exists(cache))
+                {
+                    BuildOptions options = new BuildOptions();
+                    byte[] bytes = RcsWriter.Build(points, options, out stats);
+                    File.WriteAllBytes(cache, bytes);
+                }
+            }
+            catch (Exception error)
+            {
+                TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + error.Message);
+                return Result.Failed;
+            }
+
+            ElementId instanceId;
+            try
+            {
+                instanceId = LinkPointCloud(uidoc.Document, cache);
+            }
+            catch (Exception error)
+            {
+                TaskDialog.Show(Caption, "Cannot link the point cloud:\n\n" + error.Message);
+                return Result.Failed;
+            }
+
+            ShowReport(uidoc.Document, cache, stats, instanceId);
+            return Result.Succeeded;
+        }
+
+        private static string PickInput()
+        {
+            using (System.Windows.Forms.OpenFileDialog dialog = new System.Windows.Forms.OpenFileDialog())
+            {
+                dialog.Title = "Select a point cloud source";
+                dialog.Filter = "Point cloud sources (*.pts;*.las)|*.pts;*.las|" +
+                                "Leica text (*.pts)|*.pts|LAS files (*.las)|*.las|All files (*.*)|*.*";
+                dialog.CheckFileExists = true;
+                return dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK
+                    ? dialog.FileName
+                    : null;
+            }
+        }
+
+        /// <summary>Cache file name: input name, size and last write time make it unique.</summary>
+        private static string CachePath(string input)
+        {
+            FileInfo info = new FileInfo(input);
+            string name = string.Format(CultureInfo.InvariantCulture, "{0}-{1}-{2}.rcs",
+                Path.GetFileNameWithoutExtension(input), info.Length, info.LastWriteTimeUtc.Ticks);
+            string root = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "rcsconv", "cache");
+            return Path.Combine(root, name);
+        }
+
+        /// <summary>Create the point cloud instance (or reuse an existing type).</summary>
+        private static ElementId LinkPointCloud(Document document, string path)
+        {
+            string fullPath = Path.GetFullPath(path);
+            string engine = ResolveEngine();
+            PointCloudType type = FindType(document, fullPath);
+
+            using (Transaction transaction = new Transaction(document, "Link point cloud"))
+            {
+                transaction.Start();
+                if (type == null)
+                    type = PointCloudType.Create(document, engine, fullPath);
+                PointCloudInstance instance = PointCloudInstance.Create(document, type.Id, Transform.Identity);
+                transaction.Commit();
+                return instance.Id;
+            }
+        }
+
+        /// <summary>The point cloud engine that handles .rcs files (Revit ships it).</summary>
+        private static string ResolveEngine()
+        {
+            IList<string> engines = Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.GetSupportedEngines();
+            string fallback = null;
+            foreach (string identifier in engines)
+            {
+                if (!Autodesk.Revit.DB.PointClouds.PointCloudEngineRegistry.IsEngineFileBased(identifier))
+                    continue;
+                if (fallback == null)
+                    fallback = identifier;
+                if (identifier.IndexOf("rcs", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return identifier;
+            }
+            if (fallback == null)
+                throw new InvalidOperationException("No file-based point cloud engine is registered in Revit.");
+            return fallback;
+        }
+
+        private static PointCloudType FindType(Document document, string fullPath)
+        {
+            FilteredElementCollector collector = new FilteredElementCollector(document);
+            foreach (Element element in collector.OfClass(typeof(PointCloudType)))
+            {
+                PointCloudType type = element as PointCloudType;
+                if (type == null || type.GetPath() == null)
+                    continue;
+                string existing = ModelPathUtils.ConvertModelPathToUserVisiblePath(type.GetPath());
+                if (string.Equals(Path.GetFullPath(existing), fullPath, StringComparison.OrdinalIgnoreCase))
+                    return type;
+            }
+            return null;
+        }
+
+        private static void ShowReport(Document document, string cache, BuildStats stats, ElementId instanceId)
+        {
+            string text = "File: " + cache + Environment.NewLine +
+                          "Element id: " + instanceId.IntegerValue;
+            if (stats != null)
+            {
+                text += string.Format(CultureInfo.InvariantCulture,
+                    Environment.NewLine + "Points: {0}; tiles: {1}; depth: {2}; edge: {3:0.###} m",
+                    stats.Points, stats.Tiles, stats.Depth, stats.TileEdge);
+            }
+            Element instance = document.GetElement(instanceId);
+            BoundingBoxXYZ box = instance == null ? null : instance.get_BoundingBox(null);
+            if (box != null)
+            {
+                text += string.Format(CultureInfo.InvariantCulture,
+                    Environment.NewLine + "BBox (m): ({0:0.###}, {1:0.###}, {2:0.###}) - ({3:0.###}, {4:0.###}, {5:0.###})",
+                    box.Min.X * 0.3048, box.Min.Y * 0.3048, box.Min.Z * 0.3048,
+                    box.Max.X * 0.3048, box.Max.Y * 0.3048, box.Max.Z * 0.3048);
+            }
+            text += Environment.NewLine + Environment.NewLine +
+                    "Manage Links shows the point cloud; the .rcs file must stay in place.";
+
+            TaskDialog dialog = new TaskDialog(Caption);
+            dialog.MainInstruction = "Point cloud linked";
+            dialog.MainContent = text;
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Open cache folder");
+            dialog.CommonButtons = TaskDialogCommonButtons.Close;
+            if (dialog.Show() == TaskDialogResult.CommandLink1)
+            {
+                System.Diagnostics.Process.Start("explorer.exe",
+                    "/select,\"" + cache + "\"");
+            }
+        }
+    }
+}

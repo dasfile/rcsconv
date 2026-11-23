@@ -54,14 +54,19 @@ ReCap 2020 (6.0.0.110).
 11. Identifiers, comments and documentation are **in English**. The Russian mirror
     of the documentation is kept locally in `docs-rus/` (git-ignored) and is never
     committed.
+    The Revit add-in (`revit/`) is C# 5 for Revit 2023 / .NET Framework 4.8: one
+    `.cs` per command, UTF-8 without BOM, LF, no NuGet and no external DLLs — it is
+    compiled in memory by `CsHotLoader` and must also compile with `csc` from
+    `C:\Windows\Microsoft.NET\Framework64\v4.0.30319`.
 
 ## Process
 
 12. One phase = one commit + an entry in the `PLAN.md` journal (what was done, what
     was learned, what is next).
-13. Do not create new files in the repository root: code goes to `tools/` (Python)
-    and `rust/` (Rust, workspace `rcsconv`; `rust/target/` is git-ignored), docs to
-    `docs/`, data and reference files to `golden/`, run results to `out/`.
+13. Do not create new files in the repository root: code goes to `tools/` (Python),
+    `rust/` (Rust, workspace `rcsconv`; `rust/target/` is git-ignored) and `revit/`
+    (the Revit add-in in C#), docs to `docs/`, data and reference files to `golden/`,
+    run results to `out/`.
     Exceptions are standard repository files: `README.md`, `LICENSE`,
     `pyproject.toml`, `.gitignore`, `.gitattributes`, `.github/` (CI).
 14. The writer must not depend on an `.rcs` template: everything it writes is
