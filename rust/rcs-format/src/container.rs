@@ -1,4 +1,4 @@
-//! Контейнер: заголовок + директория блоков + доступ к содержимому.
+//! Container: header + block directory + access to contents.
 
 use crate::bytes;
 use crate::directory::{self, Block, Dialect, DIR_RECORD_SIZE};
@@ -6,10 +6,10 @@ use crate::error::Result;
 use crate::header::Header;
 use crate::tlv::{self, Tlv};
 
-/// Разобранный `.rcs` поверх среза с исходными байтами.
+/// Parsed `.rcs` on top of a slice of the original bytes.
 ///
-/// Байты не копируются: `Container` занимает срез, поэтому дешёв для больших
-/// файлов (`level_7.rcs` — 7 МБ, облака — десятки МБ).
+/// Bytes are not copied: `Container` borrows the slice, so it is cheap for large
+/// files (`level_7.rcs` is 7 MB, real clouds are tens of MB).
 #[derive(Debug)]
 pub struct Container<'a> {
     raw: &'a [u8],
@@ -20,7 +20,7 @@ pub struct Container<'a> {
 }
 
 impl<'a> Container<'a> {
-    /// Разобрать контейнер из байтов файла.
+    /// Parse the container from the file bytes.
     pub fn parse(raw: &'a [u8]) -> Result<Container<'a>> {
         let header = Header::parse(raw)?;
         let (directory_offset, blocks) = directory::find_directory(raw, &header)?;
@@ -29,52 +29,52 @@ impl<'a> Container<'a> {
         Ok(Container { raw, header, directory_offset, blocks, blocks_trailing: trailing })
     }
 
-    /// Исходные байты файла.
+    /// Original file bytes.
     pub fn raw(&self) -> &'a [u8] {
         self.raw
     }
 
-    /// Размер файла.
+    /// File size.
     pub fn size(&self) -> usize {
         self.raw.len()
     }
 
-    /// Заголовок.
+    /// Header.
     pub fn header(&self) -> &Header {
         &self.header
     }
 
-    /// Смещение директории блоков.
+    /// Offset of the block directory.
     pub fn directory_offset(&self) -> usize {
         self.directory_offset
     }
 
-    /// Записи директории в порядке файла.
+    /// Directory records in file order.
     pub fn blocks(&self) -> &[Block] {
         &self.blocks
     }
 
-    /// Нули-терминатор директории и резерв до первого блока.
+    /// NUL terminator of the directory and the gap before the first block.
     pub fn blocks_trailing(&self) -> usize {
         self.blocks_trailing
     }
 
-    /// Первый блок нужного типа.
+    /// First block of the given type.
     pub fn block_of_type(&self, kind: u64) -> Option<Block> {
         self.blocks.iter().copied().find(|block| block.kind == kind)
     }
 
-    /// Типы блоков в порядке файла.
+    /// Block types in file order.
     pub fn block_types(&self) -> Vec<u64> {
         self.blocks.iter().map(|block| block.kind).collect()
     }
 
-    /// Содержимое блока (срез исходных байтов).
+    /// Block contents (a slice of the original bytes).
     pub fn read_block(&self, block: Block) -> &'a [u8] {
         &self.raw[block.offset as usize..block.end() as usize]
     }
 
-    /// Диалект: сначала по `chunk_version`, иначе по составу блоков.
+    /// Dialect: by `chunk_version` first, otherwise by the block layout.
     pub fn dialect(&self) -> Dialect {
         match directory::dialect_of(self.header.chunk_version) {
             Dialect::Unknown => directory::dialect_of_blocks(&self.block_types()),
@@ -82,7 +82,7 @@ impl<'a> Container<'a> {
         }
     }
 
-    /// Число записей в блоке `type 3` (`None`, если блока нет).
+    /// Number of records in the `type 3` block (`None` when the block is missing).
     pub fn tile_count(&self) -> Option<u64> {
         let block = self.block_of_type(3)?;
         if block.size < 8 {
@@ -91,7 +91,7 @@ impl<'a> Container<'a> {
         bytes::u64_at(self.raw, block.offset as usize).ok()
     }
 
-    /// Размер записи узла по инварианту «8 + count × stride = size блока».
+    /// Tile record size from the invariant "8 + count × stride = block size".
     pub fn tile_record_size(&self) -> Option<usize> {
         let block = self.block_of_type(3)?;
         let count = self.tile_count()?;
@@ -105,7 +105,7 @@ impl<'a> Container<'a> {
         Some((payload / count) as usize)
     }
 
-    /// Байт на точку (для отчётов).
+    /// Bytes per point (for reports).
     pub fn bytes_per_point(&self) -> Option<f64> {
         let block = self.block_of_type(11)?;
         let count = self.header.count;
@@ -115,7 +115,7 @@ impl<'a> Container<'a> {
         Some(block.size as f64 / count as f64)
     }
 
-    /// Блок со свойствами: `type 5` (raw) или `type 0`, если это не JPEG-превью.
+    /// Properties block: `type 5` (raw) or `type 0` when it is not a JPEG preview.
     pub fn tlv_block(&self) -> Option<Block> {
         if let Some(block) = self.block_of_type(5) {
             return Some(block);
@@ -128,7 +128,7 @@ impl<'a> Container<'a> {
         }
     }
 
-    /// Блок превью: `type 0`, если внутри JPEG.
+    /// Preview block: `type 0` when it holds a JPEG.
     pub fn preview_block(&self) -> Option<Block> {
         let block = self.block_of_type(0)?;
         if directory::is_jpeg(self.read_block(block)) {
@@ -138,7 +138,7 @@ impl<'a> Container<'a> {
         }
     }
 
-    /// TLV-записи блока свойств.
+    /// TLV records of the properties block.
     pub fn block_tlvs(&self, block: Block) -> Vec<Tlv> {
         tlv::parse_tlv(self.read_block(block), 0, 0)
     }

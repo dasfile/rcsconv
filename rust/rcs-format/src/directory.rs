@@ -1,55 +1,55 @@
-//! Директория блоков на `0x135`.
+//! Block directory at `0x135`.
 //!
-//! ПОДТВЕРЖДЕНО (`docs/RCS-FORMAT.md` §3): записи `(offset u64, size u64, type u64)`
-//! по 24 байта, терминатор — полностью нулевая запись; блоки идут по возрастанию,
-//! стыкуются и заканчиваются ровно на EOF. Выравнивания нет, поэтому начало
-//! директории ищется подбором в окне после GUID.
+//! CONFIRMED (`docs/RCS-FORMAT.md` 3): records `(offset u64, size u64, type u64)`
+//! of 24 bytes, terminated by an all-zero record; blocks go in ascending order,
+//! are contiguous and end exactly at EOF. There is no alignment, so the start of
+//! the directory is found by scanning the window after the GUID.
 
 use crate::bytes;
 use crate::error::{Error, Result};
 use crate::header::Header;
 
-/// Размер записи директории.
+/// Size of a directory record.
 pub const DIR_RECORD_SIZE: usize = 24;
-/// Предохранитель от «директории» из случайных байт.
+/// Guard against a "directory" made of random bytes.
 pub const MAX_BLOCKS: usize = 64;
-/// Сколько байт после GUID пробуем как начало директории.
+/// How many bytes after the GUID are tried as the directory start.
 pub const DIR_SCAN_WINDOW: usize = 0x40;
-/// Первый блок всегда здесь (подтверждено на эталонах).
+/// The first block is always here (confirmed on the reference files).
 pub const FIRST_BLOCK_OFFSET: usize = 0x1812D;
-/// Сигнатура JPEG-превью в raw-диалекте.
+/// JPEG preview signature in the raw dialect.
 pub const JPEG_SOI: [u8; 3] = [0xFF, 0xD8, 0xFF];
 
-/// Запись директории.
+/// A directory record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Block {
-    /// Смещение блока в файле.
+    /// Block offset in the file.
     pub offset: u64,
-    /// Размер блока в байтах.
+    /// Block size in bytes.
     pub size: u64,
-    /// Тип блока (3 — узлы, 11 — точки, 1 — метаданные, 0/5 — свойства/превью).
+    /// Block type (3 — tiles, 11 — points, 1 — metadata, 0/5 — properties/preview).
     pub kind: u64,
 }
 
 impl Block {
-    /// Конец блока (не включая).
+    /// End of the block (exclusive).
     pub fn end(&self) -> u64 {
         self.offset + self.size
     }
 }
 
-/// Диалект контейнера.
+/// Container dialect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dialect {
-    /// Импортированный скан: `chunk_version` 1/2/134, есть JPEG-превью.
+    /// Imported scan: `chunk_version` 1/2/134, has a JPEG preview.
     Raw,
-    /// Экспорт Unified RCS: `chunk_version` 5, TLV в `type 0`.
+    /// Unified RCS export: `chunk_version` 5, TLV in `type 0`.
     Export,
-    /// Не опознан (не ошибка: версия схемы писателя может быть новой).
+    /// Not recognised (not an error: a writer schema version may be newer).
     Unknown,
 }
 
-/// Читать записи директории, пока не встретится полностью нулевая.
+/// Read directory records until an all-zero one appears.
 fn walk_directory(data: &[u8], start: usize) -> Option<Vec<Block>> {
     let mut blocks = Vec::new();
     let mut offset = start;
@@ -79,7 +79,7 @@ fn walk_directory(data: &[u8], start: usize) -> Option<Vec<Block>> {
     }
 }
 
-/// Инвариант: блоки по возрастанию, стыкуются, кончаются ровно на EOF.
+/// Invariant: blocks are ascending, contiguous and end exactly at EOF.
 fn directory_is_valid(blocks: &[Block], start: usize, file_size: u64) -> bool {
     let mut previous_end: Option<u64> = None;
     for block in blocks {
@@ -94,7 +94,7 @@ fn directory_is_valid(blocks: &[Block], start: usize, file_size: u64) -> bool {
     previous_end == Some(file_size)
 }
 
-/// Найти директорию: первый кандидат в окне, который покрывает файл целиком.
+/// Find the directory: the first candidate in the window that covers the whole file.
 pub fn find_directory(data: &[u8], header: &Header) -> Result<(usize, Vec<Block>)> {
     let file_size = data.len() as u64;
     let window_end = (header.guid_end() + DIR_SCAN_WINDOW).min(data.len());
@@ -108,8 +108,8 @@ pub fn find_directory(data: &[u8], header: &Header) -> Result<(usize, Vec<Block>
     Err(Error::DirectoryNotFound)
 }
 
-/// Диалект по `chunk_version` (наблюдения: 1 — raw из `.laz`, 2 — raw из `.pts`,
-/// 5 — экспорт, 134 — «нетекстовый» импорт).
+/// Dialect by `chunk_version` (observations: 1 — raw from `.laz`, 2 — raw from
+/// `.pts`, 5 — export, 134 — "non-text" import).
 pub fn dialect_of(chunk_version: u32) -> Dialect {
     match chunk_version {
         1 | 2 | 134 => Dialect::Raw,
@@ -118,7 +118,7 @@ pub fn dialect_of(chunk_version: u32) -> Dialect {
     }
 }
 
-/// Диалект по составу блоков, если `chunk_version` незнаком.
+/// Dialect by block layout when `chunk_version` is unknown.
 pub fn dialect_of_blocks(types: &[u64]) -> Dialect {
     match types {
         [3, 1, 11, 5, 0] => Dialect::Raw,
@@ -127,7 +127,7 @@ pub fn dialect_of_blocks(types: &[u64]) -> Dialect {
     }
 }
 
-/// JPEG-превью скана (`type 0` в raw-диалекте).
+/// Scan preview (`type 0` in the raw dialect).
 pub fn is_jpeg(blob: &[u8]) -> bool {
     blob.starts_with(&JPEG_SOI)
 }

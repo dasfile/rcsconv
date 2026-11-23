@@ -1,22 +1,22 @@
-//! bbox и контракт источника точек.
+//! bbox and the point-source contract.
 
 use crate::error::Result;
 use crate::point::CloudPoint;
 use crate::progress::Progress;
 
-/// bbox и число точек источника.
+/// bbox and point count of a source.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
-    /// Минимум bbox.
+    /// bbox minimum.
     pub low: [f64; 3],
-    /// Максимум bbox.
+    /// bbox maximum.
     pub high: [f64; 3],
-    /// Число точек.
+    /// Number of points.
     pub count: u64,
 }
 
 impl Bounds {
-    /// Центр bbox — он становится `center` заголовка.
+    /// bbox centre — becomes the header `center`.
     pub fn center(&self) -> [f64; 3] {
         [
             (self.low[0] + self.high[0]) / 2.0,
@@ -25,7 +25,7 @@ impl Bounds {
         ]
     }
 
-    /// Полупротяжённость bbox — она становится `extent` заголовка.
+    /// bbox half-extent — becomes the header `extent`.
     pub fn half_extent(&self) -> [f64; 3] {
         [
             (self.high[0] - self.low[0]) / 2.0,
@@ -35,37 +35,37 @@ impl Bounds {
     }
 }
 
-/// Источник точек для сборки `.rcs`.
+/// Point source for building a `.rcs`.
 ///
-/// Контракт повторяет `cloud.CloudSource`: сначала `bounds()`, затем `points()`.
-/// В Python `points()` — генератор на несколько проходов; в Rust точки читаются
-/// одним вектором (на 4 млн точек это ~128 МБ, зато проход один и порядок
-/// гарантирован — важно для побайтового паритета).
+/// The contract mirrors `cloud.CloudSource`: first `bounds()`, then `points()`.
+/// In Python `points()` is a multi-pass generator; in Rust points are read into
+/// a single vector (about 128 MB for 4 M points) so there is one pass and the
+/// order is guaranteed — important for byte parity.
 pub trait Source {
-    /// bbox и число точек.
+    /// bbox and point count.
     fn bounds(&self) -> Result<Bounds>;
 
-    /// То же, что [`Source::bounds`], но с отчётом о прогрессе чтения.
+    /// Same as [`Source::bounds`], but reports read progress.
     ///
-    /// Источники, которым для bbox нужно прочитать весь файл, переопределяют
-    /// метод; по умолчанию прогресс не отчитывается.
+    /// Sources that must read the whole file to get the bbox override this
+    /// method; by default no progress is reported.
     fn bounds_with(&self, progress: &dyn Progress) -> Result<Bounds> {
         let _ = progress;
         self.bounds()
     }
 
-    /// Все точки в порядке файла (забирает вектор из источника).
+    /// All points in file order (takes the vector out of the source).
     fn points(&mut self) -> Result<Vec<CloudPoint>>;
 
-    /// То же, что [`Source::points`], но с отчётом о прогрессе.
+    /// Same as [`Source::points`], but reports progress.
     ///
-    /// По умолчанию прогресс не отчитывается — важно для паритетных тестов:
-    /// вмешательство в порядок и содержимое точек недопустимо.
+    /// By default no progress is reported — important for parity tests:
+    /// interfering with point order or content is not allowed.
     fn points_with(&mut self, progress: &dyn Progress) -> Result<Vec<CloudPoint>> {
         let _ = progress;
         self.points()
     }
 
-    /// Что за источник (для отчёта в CLI).
+    /// What this source is (for the CLI report).
     fn describe(&self) -> String;
 }

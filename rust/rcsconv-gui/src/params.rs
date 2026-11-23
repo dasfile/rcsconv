@@ -1,39 +1,39 @@
-//! Параметры конвертации, введённые в окне.
+//! Conversion parameters entered in the window.
 //!
-//! Задача модуля — превратить состояние полей в [`rcs_conv::Options`] точно так
-//! же, как CLI разбирает ключи (`Options::parse`), и сохранить/прочитать их из
-//! реестра. Win32 здесь нет, поэтому равенство с CLI проверяется тестом.
+//! The module turns the field state into [`rcs_conv::Options`] exactly the way the
+//! CLI parses flags (`Options::parse`), and saves/loads them from the registry.
+//! There is no Win32 here, so a test checks equality with the CLI.
 
 use std::path::PathBuf;
 
 use rcs_conv::{LasOptions, Options, Recenter};
 
-/// Как центрировать координаты (`--recenter`).
+/// How to recentre coordinates (`--recenter`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecenterChoice {
-    /// Не сдвигать.
+    /// Do not shift.
     None,
-    /// Вычесть центр bbox.
+    /// Subtract the bbox centre.
     Center,
-    /// Вычесть минимум bbox.
+    /// Subtract the bbox minimum.
     Min,
 }
 
 impl RecenterChoice {
-    /// Все варианты в порядке выпадающего списка.
+    /// All variants in combo box order.
     pub const ALL: [RecenterChoice; 3] =
         [RecenterChoice::None, RecenterChoice::Center, RecenterChoice::Min];
 
-    /// Подпись в интерфейсе.
+    /// Label in the interface.
     pub fn label(self) -> &'static str {
         match self {
-            RecenterChoice::None => "не сдвигать",
-            RecenterChoice::Center => "по центру",
-            RecenterChoice::Min => "по минимуму",
+            RecenterChoice::None => "keep as is",
+            RecenterChoice::Center => "bbox center",
+            RecenterChoice::Min => "bbox minimum",
         }
     }
 
-    /// Значение ключа `--recenter`.
+    /// Value of the `--recenter` flag.
     pub fn cli_value(self) -> &'static str {
         match self {
             RecenterChoice::None => "none",
@@ -42,7 +42,7 @@ impl RecenterChoice {
         }
     }
 
-    /// Разобрать значение ключа.
+    /// Parse a flag value.
     pub fn from_cli(text: &str) -> Option<RecenterChoice> {
         RecenterChoice::ALL
             .into_iter()
@@ -58,29 +58,29 @@ impl RecenterChoice {
     }
 }
 
-/// Предел точек в узле по умолчанию (предел формата).
+/// Default points per tile (the format limit).
 pub const DEFAULT_MAX_TILE: &str = "65536";
 
-/// Параметры конвертации в текстовом виде — как они введены в окне.
+/// Conversion parameters as text — exactly as entered in the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
-    /// Папка вывода (`-o`); пусто — рядом с входом.
+    /// Output folder (`-o`); empty means next to the input.
     pub out_dir: String,
-    /// Множитель координат (`--units-scale`).
+    /// Coordinate multiplier (`--units-scale`).
     pub units: String,
-    /// Центрирование (`--recenter`).
+    /// Recentring (`--recenter`).
     pub recenter: RecenterChoice,
-    /// Предел точек в узле (`-m`).
+    /// Points per tile (`-m`).
     pub max_per_tile: String,
-    /// GUID результата (`-g`); пусто — случайный.
+    /// Result GUID (`-g`); empty means random.
     pub guid: String,
-    /// Читать цвет LAS.
+    /// Read LAS colour.
     pub color: bool,
-    /// Читать интенсивность LAS.
+    /// Read LAS intensity.
     pub intensity: bool,
-    /// Перезаписывать существующий `.rcs` (`-f`).
+    /// Overwrite an existing `.rcs` (`-f`).
     pub force: bool,
-    /// Обходить подкаталоги (`-r`).
+    /// Walk subdirectories (`-r`).
     pub recursive: bool,
 }
 
@@ -101,23 +101,23 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Проверить значения и собрать [`Options`] для набора входов.
+    /// Validate the values and build [`Options`] for a set of inputs.
     ///
-    /// Сообщения об ошибках совпадают с CLI: GUI показывает их в подсказке.
+    /// Error messages match the CLI: the GUI shows them in the hint.
     pub fn to_options(&self, sources: Vec<String>) -> Result<Options, String> {
         let units: f64 = self
             .units
             .trim()
             .parse()
-            .map_err(|_| format!("--units-scale {}: ожидается число", self.units.trim()))?;
+            .map_err(|_| format!("--units-scale {}: a number is expected", self.units.trim()))?;
         if units <= 0.0 {
-            return Err("--units-scale должен быть > 0".to_string());
+            return Err("--units-scale must be > 0".to_string());
         }
         let max_per_tile: u32 = self
             .max_per_tile
             .trim()
             .parse()
-            .map_err(|_| format!("-m {}: ожидается целое число", self.max_per_tile.trim()))?;
+            .map_err(|_| format!("-m {}: an integer is expected", self.max_per_tile.trim()))?;
         let out_dir = self.out_dir.trim();
         let guid = self.guid.trim();
 
@@ -141,12 +141,12 @@ impl Settings {
         Ok(options)
     }
 
-    /// Проверить значения без сборки [`Options`].
+    /// Validate the values without building [`Options`].
     pub fn validate(&self) -> Result<(), String> {
-        self.to_options(vec!["проверка".to_string()]).map(|_| ())
+        self.to_options(vec!["validation".to_string()]).map(|_| ())
     }
 
-    /// Пары «имя, значение» для реестра.
+    /// Name/value pairs for the registry.
     pub fn to_pairs(&self) -> Vec<(String, String)> {
         vec![
             ("out_dir".to_string(), self.out_dir.clone()),
@@ -161,7 +161,7 @@ impl Settings {
         ]
     }
 
-    /// Восстановить параметры из пар реестра (неизвестные имена игнорируются).
+    /// Restore the parameters from registry pairs (unknown names are ignored).
     pub fn from_pairs<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> Settings {
         let mut settings = Settings::default();
         for (name, value) in pairs {
@@ -186,7 +186,7 @@ impl Settings {
     }
 }
 
-/// Флаг в реестр: `1` / `0`.
+/// Flag to the registry: `1` / `0`.
 fn flag(value: bool) -> String {
     if value {
         "1".to_string()
@@ -195,7 +195,7 @@ fn flag(value: bool) -> String {
     }
 }
 
-/// Флаг из реестра: `1`/`true`/`yes`/`on` — истина, остальное — ложь.
+/// Flag from the registry: `1`/`true`/`yes`/`on` mean true, anything else false.
 fn truthy(value: &str) -> bool {
     matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on")
 }
@@ -206,10 +206,10 @@ mod tests {
 
     fn cli(args: &[&str]) -> Options {
         let args: Vec<String> = args.iter().map(|item| item.to_string()).collect();
-        Options::parse(&args, true).expect("разбор CLI")
+        Options::parse(&args, true).expect("CLI parse")
     }
 
-    /// Поля `Options`, которые задаёт GUI, должны совпасть с CLI.
+    /// The `Options` fields the GUI sets must match the CLI.
     fn assert_same(gui: &Options, cli: &Options) {
         assert_eq!(gui.sources, cli.sources);
         assert_eq!(gui.out_dir, cli.out_dir);
@@ -280,19 +280,19 @@ mod tests {
     #[test]
     fn rejects_bad_numbers() {
         let bad = Settings { units: "0".to_string(), ..Settings::default() };
-        assert_eq!(bad.validate(), Err("--units-scale должен быть > 0".to_string()));
+        assert_eq!(bad.validate(), Err("--units-scale must be > 0".to_string()));
 
         let bad = Settings { units: "abc".to_string(), ..Settings::default() };
-        assert!(bad.validate().unwrap_err().contains("ожидается число"));
+        assert!(bad.validate().unwrap_err().contains("a number is expected"));
 
         let bad = Settings { max_per_tile: "0".to_string(), ..Settings::default() };
-        assert_eq!(bad.validate(), Err("-m 0 вне 1…65536".to_string()));
+        assert_eq!(bad.validate(), Err("-m 0 out of 1..65536".to_string()));
 
         let bad = Settings { max_per_tile: "70000".to_string(), ..Settings::default() };
-        assert_eq!(bad.validate(), Err("-m 70000 вне 1…65536".to_string()));
+        assert_eq!(bad.validate(), Err("-m 70000 out of 1..65536".to_string()));
 
-        let bad = Settings { max_per_tile: "много".to_string(), ..Settings::default() };
-        assert!(bad.validate().unwrap_err().contains("ожидается целое число"));
+        let bad = Settings { max_per_tile: "many".to_string(), ..Settings::default() };
+        assert!(bad.validate().unwrap_err().contains("an integer is expected"));
 
         assert_eq!(Settings::default().validate(), Ok(()));
     }
@@ -315,7 +315,7 @@ mod tests {
             pairs.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
         assert_eq!(Settings::from_pairs(borrowed), settings);
 
-        // Пустой набор пар — значения по умолчанию.
+        // An empty pair set means the default values.
         assert_eq!(Settings::from_pairs(Vec::new()), Settings::default());
     }
 }

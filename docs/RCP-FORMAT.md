@@ -1,42 +1,42 @@
-# Формат `.rcp` (проект ReCap 2020, 6.0.0.110)
+# The `.rcp` format (ReCap 2020 project, 6.0.0.110)
 
-Статусы: **ПОДТВЕРЖДЕНО** — проверено на файлах корпуса (`golden/*.rcp`);
-**ГИПОТЕЗА** — догадка, указано, чем проверять; **ОПРОВЕРГНУТО** — с указанием, что
-именно это disproved.
+Statuses: **CONFIRMED** — checked on the corpus files (`golden/*.rcp`);
+**HYPOTHESIS** — a guess with a note on how to check it; **DISPROVED** — with a
+note on what disproved it.
 
-Читать: `python tools/rcp_info.py golden/*.rcp` (`--json`, `--entries`,
-`--dump-xml` в `out/`).
+Inspect with: `python tools/rcp_info.py golden/*.rcp` (`--json`, `--entries`,
+`--dump-xml` to `out/`).
 
-## 1. Контейнер
+## 1. Container
 
-`.rcp` — обычный **ZIP** (сигнатура `50 4B 03 04`), ровно **3 записи**:
+`.rcp` is an ordinary **ZIP** (signature `50 4B 03 04`) with exactly **3 entries**:
 
-| Запись | Размер | Что это |
+| Entry | Size | What it is |
 |---|---|---|
-| `<guid>.jpg` | 17–28 КБ | превью проекта |
-| `<guid>.xml` | 10–11 КБ | **модель проекта** (настройки и ссылки) |
-| `rs_screenshot__.bmp` | **15 491 022 Б** во всех проектах | скриншот окна ReCap |
+| `<guid>.jpg` | 17–28 KB | project preview |
+| `<guid>.xml` | 10–11 KB | **project model** (settings and links) |
+| `rs_screenshot__.bmp` | **15,491,022 B** in every project | ReCap window screenshot |
 
-ПОДТВЕРЖДЕНО на 13 проектах корпуса (`.pts`-ветка, `.laz`-ветка, `probe6/test1/test2`).
-Сжатие — deflate, порядок записей произвольный.
+CONFIRMED on 13 corpus projects (the `.pts` branch, the `.laz` branch,
+`probe6/test1/test2`). Compression is deflate, entry order is arbitrary.
 
-**Точек внутри `.rcp` нет.** Данные лежат рядом: `<имя> Support/<имя>.rcs`
-(raw-диалект v2), а в XML — только пути.
+**There are no points inside `.rcp`.** The data lives next to it:
+`<name> Support/<name>.rcs` (raw dialect v2), and the XML only stores paths.
 
-## 2. XML: карта документа
+## 2. XML: document map
 
 ```
 <Autodesk Version="1.0">
-  <ProjectId UUID="…"/>
+  <ProjectId UUID="..."/>
   <Nodes>
-    <VoxelTreeRunTime Id="{…}">
+    <VoxelTreeRunTime Id="{...}">
       <Translation x y z/> <Rotation/> <Scale/>
-      <Color R G B r g b/>                 цвет скана в списке
+      <Color R G B r g b/>                 scan colour in the list
       <Visible/> <Registered/> <Selected/>
       <NodeName Value/> <Group Value/>
-      <Path Value="…\Support\<имя>.rcs"/>  абсолютный путь к raw-файлу
-      <RelativePath Value=".\..."/>        то же относительно .rcp
-      <NumPoints Value/>                   сколько точек принял импорт
+      <Path Value="...\Support\<name>.rcs"/>  absolute path to the raw file
+      <RelativePath Value=".\..."/>        the same relative to the .rcp
+      <NumPoints Value/>                   points accepted by the import
       <HasRGB/> <HasNormals/> <HasIntensity/> <NormalizeIntensity/>
       <MaxIntensity/> <MinIntensity/> <RangeImageWidth/> <RangeImageHeight/>
       <IsLidarData/>
@@ -45,78 +45,80 @@
   <Measurements/>
   <PointCloudSegmentList>  RegionManager (DefaultLayer + RegionArray), ClipManager
   <ViewStates/> <ViewStates25D/>
-  <LimitBoxes>             габаритный ящик (6 граней)
-  <ProjectNavigator>       регионы/сканы, видимость
+  <LimitBoxes>             bounding box (6 faces)
+  <ProjectNavigator>       regions/scans, visibility
   <ActiveViewport> <AutoCamCamera/> <AutoCamHomeCamera/>
   <GeoReference/> <GridOrigin/> <LastActiveGeoReference/>
   <CoordLabel X Y Z/> <UnitType Value="1" IsSurveyMode="0"/> <UnitPrecision Value="3"/>
-  <ProjectMetaData MajorVersion="1" MinorVersion="6" PatchVersion="0" …>
+  <ProjectMetaData MajorVersion="1" MinorVersion="6" PatchVersion="0" ...>
       <SaveInformation Application="ReCap" ApplicationVersion="6.0.0.110"
                        Timestamp="20261102T145352" UserId="user" Count="1"/>
-      <ScanImportSettings> … </ScanImportSettings>
+      <ScanImportSettings> ... </ScanImportSettings>
   </ProjectMetaData>
-  <Project ver="1.0.0" app="Autodesk ReCap" path=… cache=…>
+  <Project ver="1.0.0" app="Autodesk ReCap" path=... cache=...>
       <ShotInfo name id PCPid HasIntensity path relativePath rawScanPath
                 relativeRawScanPath type="UNSTRUCTURED">
           <OrientedBoundingBox><tform><T x y/><S x y z/></tform></OrientedBoundingBox>
-          <ScanImportSettings> … </ScanImportSettings>
+          <ScanImportSettings> ... </ScanImportSettings>
       </ShotInfo>
-      <GroupInfo name id> <LaserRegInfo isReg/> <map id name><bounds …/></map> …
+      <GroupInfo name id> <LaserRegInfo isReg/> <map id name><bounds .../></map> ...
   </Project>
 </Autodesk>
 ```
 
-ПОДТВЕРЖДЕНО: имена и вложенность перечисленных элементов на всех 13 проектах;
-`ProjectMetaData` хранит **историю** сохранений (`SaveInformation` на каждое
-сохранение, `Count` = 0, 1, …).
+CONFIRMED: the names and nesting of these elements in all 13 projects;
+`ProjectMetaData` keeps a **history** of saves (`SaveInformation` per save,
+`Count` = 0, 1, ...).
 
-## 3. `ScanImportSettings` — фактические настройки импорта
+## 3. `ScanImportSettings` — the actual import settings
 
 ```xml
 <ScanImportTextSettings unitScale="1" skipLines="1" separator=" ">   <!-- .pts -->
-    <TextImportColumn index="0"/> … <TextImportColumn index="6"/>     <!-- x y z i r g b -->
-    <TextImportColumn index="11"/> ×7                                 <!-- «пусто» -->
+    <TextImportColumn index="0"/> ... <TextImportColumn index="6"/>     <!-- x y z i r g b -->
+    <TextImportColumn index="11"/> x7                                 <!-- "unused" -->
 </ScanImportTextSettings>
 <ScanImportFilterSettings><IntensityClip max="100"/></ScanImportFilterSettings>
 <ScanImportAdvancedSettings density="5" upDirection="Z"/>
 ```
 
-| Атрибут | Смысл | ПОДТВЕРЖДЕНО |
+| Attribute | Meaning | CONFIRMED |
 |---|---|---|
-| `unitScale` | `Text Options → Unit` (1 = метр) | все проекты `.pts` → `1` |
-| `skipLines` | пропуск шапки-счётчика: `1` есть, **атрибута нет** = `0` | `probe6/test1/test2` — атрибута нет; остальные `1` |
-| `separator` | разделитель текста (`" "` = пробел) | все `.pts` → пробел |
-| `TextImportColumn index` | назначение колонок; `11` = «не использовать» | 7 колонок → `0…6`; у 6-колоночных `.pts` слот интенсивности пропущен: `0,1,2,4,5,6` (`probe6`) |
-| `IntensityClip max` | `Clip points` в процентах: 100 = «0 % обрезки» | все проекты → `100` |
-| `density` | **`Decimation grid` в мм**; нет атрибута = 1 мм (по умолчанию) | пара проектов `level_7_n19099`: `density="5"` → экспорт 19 088 точек, без атрибута → 19 093 |
-| `upDirection` | «верх» сцены | все → `Z` |
+| `unitScale` | `Text Options -> Unit` (1 = metre) | every `.pts` project -> `1` |
+| `skipLines` | skip the count header: `1` when present, **no attribute** = `0` | `probe6/test1/test2` have no attribute; the rest have `1` |
+| `separator` | text delimiter (`" "` = space) | every `.pts` -> space |
+| `TextImportColumn index` | column assignment; `11` = "unused" | 7 columns -> `0..6`; for 6-column `.pts` the intensity slot is skipped: `0,1,2,4,5,6` (`probe6`) |
+| `IntensityClip max` | `Clip points` in percent: 100 = "0 % clipping" | every project -> `100` |
+| `density` | **`Decimation grid` in mm**; absent = 1 mm (the default) | the `level_7_n19099` project pair: `density="5"` -> export 19,088 points, absent -> 19,093 |
+| `upDirection` | scene "up" | every project -> `Z` |
 
-При импорте из `.laz` блок текстовых настроек пуст: `<ScanImportTextSettings unitScale="1"/>`,
-а `separator`/`skipLines`/колонок нет — и в `ShotInfo` появляется
-`HasIntensity="0"` (в LAS интенсивность есть, но вся нулевая).
+When importing from `.laz`, the text settings block is empty:
+`<ScanImportTextSettings unitScale="1"/>`, with no `separator`/`skipLines`/columns —
+and `HasIntensity="0"` appears in `ShotInfo` (LAS has intensity, but it is all
+zeros).
 
-Следствие для `.rcs`: от `HasIntensity` зависит байт `[8]` тела точки
-(`docs/RCS-FORMAT.md` §11): `.pts`-ветка → константа 255, `.laz`-ветка → градиент
-по высоте. Цвет (BGR, `[9:12]`) в обеих ветках сохраняется дословно.
+Consequence for `.rcs`: `HasIntensity` affects byte `[8]` of the point body
+(`docs/RCS-FORMAT.md` 11): the `.pts` branch gives the constant 255, the `.laz`
+branch gives a height gradient. The colour (BGR, `[9:12]`) is preserved verbatim in
+both branches.
 
-## 4. Что ещё в XML полезно знать
+## 4. Other useful XML facts
 
-- `NumPoints` = число точек, принятых импортом (совпадает с `count` заголовка raw
-  `.rcs`); сравнение с числом строк `.pts` показывает потери импорта
-  (`docs/CORPUS.md`).
-- `ShotInfo/@type` = `UNSTRUCTURED` для импортированного облака (у фотограмметрии
-  ReCap бывают структурированные сканы — не проверялось).
+- `NumPoints` = the number of points accepted by the import (matches the `count` in
+  the header of the raw `.rcs`); comparing it with the `.pts` line count shows the
+  import loss (`docs/CORPUS.md`).
+- `ShotInfo/@type` = `UNSTRUCTURED` for an imported cloud (ReCap photogrammetry may
+  have structured scans — not checked).
 - `<GeoReference>`/`<GridOrigin>` = `(0,0,0)`, `UnitType=1`, `UnitPrecision=3` —
-  локальные метры, CRS не задана.
+  local metres, no CRS.
 - `<GroupInfo>/<LaserRegInfo isReg="1" level="FINE_ALIGNED" status="OK"/>` —
-  регистрация одного скана «сам с собой».
+  registration of a single scan "with itself".
 
-## 5. Открытые вопросы
+## 5. Open questions
 
-| Вопрос | Ценность | Чем проверять |
+| Question | Value | How to check |
 |---|---|---|
-| `VoxelTreeRunTime/Color`, `MaxIntensity`, `MinIntensity` (всегда 0) | понимание UI | проекты с реальной интенсивностью/несколькими сканами |
-| `PointCloudSegmentList` (слои, регионы, клипы) | понимание | проект с обрезанным/разделённым облаком |
-| `rs_screenshot__.bmp` — константа или рендер? | не нужно | сравнить SHA-256 двух проектов |
-| ГИПОТЕЗА: `*.rcp.bk1…bk3` — предыдущие сохранения; `Temporary Cache Files/*.md,*.png` — кэш превью | понимание | сравнить `bk*` между сохранениями |
-| Пишет ли ReCap `.rcp` иначе при `Save As`/сжатии | не нужно | два сохранения одного проекта |
+| `VoxelTreeRunTime/Color`, `MaxIntensity`, `MinIntensity` (always 0) | understanding the UI | projects with real intensity/several scans |
+| `PointCloudSegmentList` (layers, regions, clips) | understanding | a project with a cropped/split cloud |
+| `rs_screenshot__.bmp` — a constant or a render? | not needed | compare SHA-256 of two projects |
+| HYPOTHESIS: `*.rcp.bk1..bk3` are previous saves; `Temporary Cache Files/*.md,*.png` is a preview cache | understanding | compare `bk*` between saves |
+| Does ReCap write `.rcp` differently on `Save As`/compression | not needed | two saves of one project |

@@ -1,140 +1,149 @@
-# Корпус реальных сканов: паспорт и что мы на нём выяснили
+# Real-scan corpus: passport and what it told us
 
-Все данные — в одной папке `golden/` (`golden/README.md`). Эталоны — **только** от
-ReCap 2020 (6.0.0.110), экспорт **Unified RCS** (диалект v5) — именно его пишет наш
-писатель. Исходники сняты iPhone (Polycam) в локальных метрах (CRS = none).
+All data lives in one folder, `golden/` (`golden/README.md`). Reference files come
+**only** from ReCap 2020 (6.0.0.110), **Unified RCS** export (dialect v5) — the
+format our writer produces. Sources were captured on an iPhone (Polycam) in local
+metres (CRS = none).
 
-## Что где лежит
+## What is where
 
 ```
-golden/                        ветка «из .pts»
-    <имя>.laz                  первичный исходник (iPhone / Polycam)
-    <имя>.pts                  las2pts.py (шапка-счётчик + 7 колонок)
-    <имя>.rcp                  проект ReCap (ZIP: XML с настройками + превью)
-    <имя>.rcs                  Export → Unified RCS — ЭТАЛОН
-    <имя> Support/<имя>.rcs    raw-диалект v2 (создаёт импорт)
-golden/lazimport/              ветка «из .laz» (те же два облака, импорт без .pts)
-golden/reference/              *_orig.rcs — импорты 2026-10-29 (побайтовое доказательство)
+golden/                        the "from .pts" branch
+    <name>.laz                 primary source (iPhone / Polycam)
+    <name>.pts                 las2pts.py (count header + 7 columns)
+    <name>.rcp                 ReCap project (ZIP: settings XML + preview)
+    <name>.rcs                 Export -> Unified RCS — REFERENCE
+    <name> Support/<name>.rcs  raw dialect v2 (created by the import)
+golden/lazimport/              the "from .laz" branch (same two clouds, no .pts)
+golden/reference/              *_orig.rcs — imports of 2026-10-29 (byte proof)
 ```
 
-## Происхождение `.pts` (важно)
+## Origin of the `.pts` files (important)
 
-| Что | Как получено | Проверка |
+| What | How it was produced | Check |
 |---|---|---|
-| 10 корпусных `.pts` + `level_7` | `tools/las2pts.py --precision 4` из `.laz` | x/y/z, интенсивность и RGB совпадают с `.laz` **точно** (0 расхождений на 324 680 точках) |
-| `level_7_n19099.pts` | `tools/pts_subset.py -n 20000` из `level_7.pts` (каждая 17-я) | шапка пересчитана |
-| `probe6/test1/test2.pts` | **ручные** пробы: 3 точки, 6 колонок, **без шапки-счётчика**, 15 знаков | ReCap принял (`NumPoints=3`), но канал интенсивности у них отсутствует |
+| 10 corpus `.pts` + `level_7` | `tools/las2pts.py --precision 4` from `.laz` | x/y/z, intensity and RGB match the `.laz` **exactly** (0 differences over 324,680 points) |
+| `level_7_n19099.pts` | `tools/pts_subset.py -n 20000` from `level_7.pts` (every 17th) | the header is recalculated |
+| `probe6/test1/test2.pts` | **manual** probes: 3 points, 6 columns, **no count header**, 15 digits | ReCap accepted them (`NumPoints=3`), but they have no intensity channel |
 
-Почему `.pts` не портит данные: в `.laz` цвет уже 8-битный (`max 255`), а координаты
-кратны 0.1 мм, поэтому округление до 4 знаков ничего не теряет (масштаб в заголовке
-`.laz` — «фиктивная» точность порядка 1e-9). Сам RCS всё равно квантует в 1 мм / ¼ мм
-/ 1/16 мм, то есть точнее 0.0625 мм формат не хранит.
+Why `.pts` does not corrupt the data: in `.laz` the colour is already 8-bit
+(`max 255`) and coordinates are multiples of 0.1 mm, so rounding to 4 decimals
+loses nothing (the `.laz` header scale is a "fictitious" precision of about 1e-9).
+RCS itself quantises to 1 mm / 1/4 mm / 1/16 mm, so the format never stores
+anything finer than 0.0625 mm.
 
-## Облака и счётчики
+## Clouds and counters
 
-`импорт` — `NumPoints` из XML проекта, `экспорт` — `count` заголовка эталона.
+`import` is `NumPoints` from the project XML, `export` is the reference header
+`count`.
 
-| Облако | `.pts` | импорт | экспорт | потери экспорта | узлы / гл. |
+| Cloud | `.pts` | import | export | export loss | tiles / depth |
 |---|---|---|---|---|---|
-| attic_center_south_west | 1 644 120 | 1 643 488 | 1 509 808 | −8.1 % | 36 / 3 |
-| attic_entrance | 962 000 | 961 763 | 908 244 | −5.6 % | 45 / 3 |
-| attic_north | 1 411 760 | 1 411 301 | 1 305 132 | −7.5 % | — |
-| attic_north_ost | 1 412 320 | 1 411 939 | 1 322 122 | −6.4 % | — |
-| attic_south_ost | 1 086 140 | 1 085 855 | 1 021 979 | −5.9 % | 39 / 3 |
-| attic_south_west | 3 953 680 | 3 950 433 | 3 253 181 | −17.6 % | 38 / 3 |
-| entrance | 2 580 040 | 2 578 690 | 2 314 856 | −10.2 % | — |
-| level_7 | 324 680 | 324 648 | 317 548 | −2.2 % | 43 / 3 |
-| level_7_n19099 | 19 099 | 19 099 | 19 093 | −0.03 % | 42 / 3 |
-| roof_1_stairwell | 3 130 480 | 3 129 017 | 2 845 656 | −9.1 % | — |
+| attic_center_south_west | 1,644,120 | 1,643,488 | 1,509,808 | -8.1 % | 36 / 3 |
+| attic_entrance | 962,000 | 961,763 | 908,244 | -5.6 % | 45 / 3 |
+| attic_north | 1,411,760 | 1,411,301 | 1,305,132 | -7.5 % | — |
+| attic_north_ost | 1,412,320 | 1,411,939 | 1,322,122 | -6.4 % | — |
+| attic_south_ost | 1,086,140 | 1,085,855 | 1,021,979 | -5.9 % | 39 / 3 |
+| attic_south_west | 3,953,680 | 3,950,433 | 3,253,181 | -17.6 % | 38 / 3 |
+| entrance | 2,580,040 | 2,578,690 | 2,314,856 | -10.2 % | — |
+| level_7 | 324,680 | 324,648 | 317,548 | -2.2 % | 43 / 3 |
+| level_7_n19099 | 19,099 | 19,099 | 19,093 | -0.03 % | 42 / 3 |
+| roof_1_stairwell | 3,130,480 | 3,129,017 | 2,845,656 | -9.1 % | — |
 
-Ветка `.laz` (A/B-контроль тех же двух облаков):
+The `.laz` branch (A/B control of the same two clouds):
 
-| Облако | импорт | экспорт | узлы / гл. | Δ к `.pts`-ветке |
+| Cloud | import | export | tiles / depth | delta vs `.pts` branch |
 |---|---|---|---|---|
-| attic_center_south_west | 1 643 470 | 1 512 729 | 267 / 4 | импорт −18, экспорт +2 921 (+0.19 %) |
-| attic_entrance | 961 759 | 908 038 | 153 / 4 | импорт −4, экспорт −206 (−0.02 %) |
+| attic_center_south_west | 1,643,470 | 1,512,729 | 267 / 4 | import -18, export +2,921 (+0.19 %) |
+| attic_entrance | 961,759 | 908,038 | 153 / 4 | import -4, export -206 (-0.02 %) |
 
-То есть посредник `.pts` меняет счётчики на 0.02–0.2 % — это округление до 0.1 мм
-перед децимацией ReCap. Структура (`type 1`, число узлов) от ветки не зависит:
-`(1, 8, …)`-слова совпадают с деревом, но **глубина** у `.laz`-ветки на единицу
-больше (267 узлов глубины 4 против 36 узлов глубины 3), при этом максимальный узел
-в `.pts`-ветке — 102 504 точки (ReCap допускает > 65 536, §4.2 RCS-FORMAT), а в
-`.laz`-ветке — 20 992.
+So the `.pts` intermediate changes the counters by 0.02–0.2 % — that is rounding to
+0.1 mm before ReCap decimation. The structure (`type 1`, number of tiles) does not
+depend on the branch: the `(1, 8, ...)` words match the tree, but the depth of the
+`.laz` branch is one higher (267 tiles at depth 4 against 36 tiles at depth 3),
+while the largest tile in the `.pts` branch holds 102,504 points (ReCap allows
+> 65,536, see `docs/RCS-FORMAT.md` 4.2) and in the `.laz` branch 20,992.
 
-## Что ReCap теряет и почему (гипотеза, часть подтверждена)
+## What ReCap loses and why (hypothesis, partly confirmed)
 
-1. **Импорт.** Потери 0.03–0.08 % (на разреженном `level_7_n19099` — **ноль**):
-   точки схлопываются в ячейке 1 мм. Числа — колонка «импорт» против `.pts`.
-2. **Экспорт.** Потери растут с плотностью: −2.2 % на 324 тыс., −17.6 % на 3.95 млн,
-   −0.03 % на 19 тыс. Похоже на **децимацию сеткой ≈5 мм** (настройкой не
-   отключается). Проверка на сырых `.pts` (уникальные ячейки):
+1. **Import.** Loss 0.03–0.08 % (on the sparse `level_7_n19099` — **zero**): points
+   collapse inside a 1 mm cell. The numbers are the "import" column against `.pts`.
+2. **Export.** Loss grows with density: -2.2 % at 324K, -17.6 % at 3.95M, -0.03 % at
+   19K. It looks like **decimation on a grid of about 5 mm** (it cannot be disabled
+   by a setting). Checked against raw `.pts` (unique cells):
 
-   | Облако | экспорт | ячеек 5.0 мм | расхождение |
+   | Cloud | export | 5.0 mm cells | difference |
    |---|---|---|---|
-   | attic_south_ost | 1 021 979 | 1 025 000 | +0.3 % |
-   | level_7 | 317 548 | 317 951 | +0.13 % |
-   | attic_south_west | 3 253 181 | 3 283 572 | +0.9 % |
+   | attic_south_ost | 1,021,979 | 1,025,000 | +0.3 % |
+   | level_7 | 317,548 | 317,951 | +0.13 % |
+   | attic_south_west | 3,253,181 | 3,283,572 | +0.9 % |
 
-   Для 1 мм ячеек совпадения нет (1 083 683 против 1 021 979) — гипотеза «сетка
-   1 мм» опровергнута. Точный шаг/начало сетки — открытый пункт §12 RCS-FORMAT.
-3. **Старые числа** (`315 270`, `19 088`) относились к проектам с `density="5"`
-   (Decimation 5 мм) — это видно в XML старых `.rcp`. Текущий корпус — без
-   `density`, то есть 1 мм.
+   For 1 mm cells there is no match (1,083,683 versus 1,021,979), so the "1 mm
+   grid" hypothesis is disproved. The exact step and grid origin are an open item
+   in `docs/RCS-FORMAT.md` section 12.
+3. **Older numbers** (`315,270`, `19,088`) belonged to projects with `density="5"`
+   (Decimation 5 mm) — visible in the XML of the old `.rcp` files. The current
+   corpus has no `density`, i.e. 1 mm.
 
-## Протокол импорта (ReCap 2020, вручную)
+## Import protocol (ReCap 2020, manual)
 
-1. `File → New Project`, папка `golden/`, имя проекта = имя облака.
-2. `Import → Point Cloud` → выбрать `.pts` (или `.laz`).
-3. Настройки (все важны):
+1. `File -> New Project`, folder `golden/`, project name = cloud name.
+2. `Import -> Point Cloud` -> choose `.pts` (or `.laz`).
+3. Settings (all matter):
 
-   | Поле | Значение | Почему |
+   | Field | Value | Why |
    |---|---|---|
-   | `Filtering → Clip points` | **0 %** | обрезка не нужна (`IntensityClip max="100"`) |
-   | `Text Options → Delimiter` | `space` | наши `.pts` с пробелами |
-   | `Text Options → Unit` | `1 Meter` | локальные метры |
-   | `Text Options → Skip` | **1**, если есть шапка-счётчик, иначе **0** | у `probe6/test1/test2` шапки нет |
-   | `Advanced → Decimation grid` | **1 mm** (не менять) | 5 мм режет до −22 % |
-   | `Advanced → Coordinate System` | `none` | неверная CRS перепроецирует |
-4. `Export → Unified RCS` рядом с `.pts`, имя = имя облака.
+   | `Filtering -> Clip points` | **0 %** | no clipping needed (`IntensityClip max="100"`) |
+   | `Text Options -> Delimiter` | `space` | our `.pts` files use spaces |
+   | `Text Options -> Unit` | `1 Meter` | local metres |
+   | `Text Options -> Skip` | **1** with a count header, otherwise **0** | `probe6/test1/test2` have no header |
+   | `Advanced -> Decimation grid` | **1 mm** (do not change) | 5 mm cuts up to -22 % |
+   | `Advanced -> Coordinate System` | `none` | a wrong CRS reprojects |
+4. `Export -> Unified RCS` next to the `.pts`, name = cloud name.
 
-Проверить, что получилось, можно по самому `.rcp` (он ZIP):
-`python tools/rcp_info.py golden/*.rcp` печатает `skipLines`, `separator`,
+You can check the result from the `.rcp` itself (it is a ZIP):
+`python tools/rcp_info.py golden/*.rcp` prints `skipLines`, `separator`,
 `IntensityClip`, `density`, `NumPoints`, `HasIntensity`.
 
-## Как проверять
+## How to check
 
 ```powershell
-# чек-лист: что снято, raw/export count, узлы/глубина
+# checklist: what was captured, raw/export count, tiles/depth
 python tools/corpus_status.py golden -g golden
 
-# наша конвертация и сверка с эталоном (эталон ищется как <имя>.rcs)
+# our conversion and comparison with the reference (the reference is <name>.rcs)
 python tools/pts2rcs.py "golden/*.pts" -o out
 python tools/validate_pts.py "golden/*.pts" -g golden
 
-# санитарный отчёт по одиночному .pts
+# sanity report for a single .pts
 python tools/validate_pts.py golden/probe6.pts
 ```
 
-`count` эталона — **наблюдение** (`INFO`): применяем критерий «count = число точек»
-только к нашим файлам; bbox эталона «плывёт» до 2–3 мм из-за децимации, поэтому для
-эталонов допуск 1 см (`validate_pts` без `--strict`).
+The reference `count` is an **observation** (`INFO`): the criterion "count = number
+of points" is applied only to our files; the reference bbox drifts by up to 2–3 mm
+because of decimation, so references use a 1 cm tolerance (`validate_pts` without
+`--strict`).
 
-## E57 — отложено (решение 2026-11-03)
+## E57 — deferred (decision of 2026-11-03)
 
-Ветку `.e57` остановили: **корректного `.e57` получить не удалось**, а без него
-читатель не отладить.
+The `.e57` branch was stopped: **no valid `.e57` could be obtained**, and without
+one a reader cannot be developed.
 
-- `golden/e57_example/` — эталонные файлы с libe57.org (`bunnyFloat`, `bunnyDouble`,
-  `pump*`), писатель `InteliSum-LD3-Studio`. XML в них **повреждён** (мусорные байты
-  внутри имён тегов), стандартными библиотеками не читается.
-- `golden/e57_example_2/` — экспорт CloudCompare 2.14.beta (`E57Format-3.4.1`):
-  заголовок E57 корректен, блок данных (29,7 МБ) побайтово одинаков между
-  сохранениями, но в XML **каждого** файла 3–9 вставок мусора
-  (`<isAtomicClock…Referenced>`, `<xMinimum type="Fl…oat">`), а `xmlPhysicalLength`
-  на 9 байт меньше фактической длины. ReCap 2020 такие файлы не импортирует
-  («не видит линков в дереве проекта») — причина в файле, а не в ReCap.
-- Решение: `.e57` **в бэклоге**; практический путь — `e57 → CloudCompare → .laz →
-  tools/las2rcs.py`. Свой `e57_read.py` пишем, когда появится корректный файл.
-- Побочный результат: `golden/reference/raw_v134.rcs` (72 точки, `@0xD4 = 134`)
-  показал, что `chunk_version` зависит от пути импорта (`docs/RCS-FORMAT.md` §2).
-- Сами e57-файлы владелец удалил как мусор; в git и `MANIFEST.sha256` их нет.
+- `golden/e57_example/` — reference files from libe57.org (`bunnyFloat`,
+  `bunnyDouble`, `pump*`), written by `InteliSum-LD3-Studio`. Their XML is
+  **corrupted** (garbage bytes inside tag names) and cannot be read by standard
+  libraries.
+- `golden/e57_example_2/` — CloudCompare 2.14.beta export (`E57Format-3.4.1`): the
+  E57 header is correct, the data block (29.7 MB) is byte-identical between saves,
+  but the XML of **every** file has 3–9 garbage insertions
+  (`<isAtomicClock...Referenced>`, `<xMinimum type="Fl...oat">`), and
+  `xmlPhysicalLength` is 9 bytes shorter than the real length. ReCap 2020 does not
+  import such files ("it does not see the links in the project tree") — the reason
+  is the file, not ReCap.
+- Decision: `.e57` is **in the backlog**; the practical path is
+  `e57 -> CloudCompare -> .laz -> tools/las2rcs.py`. Our own `e57_read.py` will be
+  written when a valid file appears.
+- Side result: `golden/reference/raw_v134.rcs` (72 points, `@0xD4 = 134`) showed
+  that `chunk_version` depends on the import path (`docs/RCS-FORMAT.md` section 2).
+- The e57 files themselves were deleted by the owner as junk; they are not in git
+  or in `MANIFEST.sha256`.

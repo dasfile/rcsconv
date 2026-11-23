@@ -1,179 +1,179 @@
-//! Чистая логика окна: очередь файлов, размеры, подписи.
+//! Pure window logic: file queue, sizes, labels.
 //!
-//! Здесь нет Win32, поэтому модуль тестируется на любой платформе (в том числе
-//! в CI на Ubuntu). Всё, что зависит от системы, живёт в [`crate::win32`].
+//! There is no Win32 here, so the module is tested on any platform (including
+//! CI on Ubuntu). Everything system-dependent lives in [`crate::win32`].
 
 use std::path::{Path, PathBuf};
 
-/// Расширения входа, которые принимает GUI.
+/// Input extensions accepted by the GUI.
 pub const SUFFIXES: &[&str] = &[".las", ".laz", ".pts"];
 
-/// Идентификаторы дочерних окон (они же `HMENU` при создании и `id` в `WM_COMMAND`).
+/// Child window ids (also `HMENU` at creation and `id` in `WM_COMMAND`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
 pub enum Id {
-    /// Строка с именем и версией.
+    /// Name and version line.
     Title = 100,
-    /// Подсказка о состоянии.
+    /// Status hint.
     Hint = 101,
-    /// Список файлов (`SysListView32`).
+    /// File list (`SysListView32`).
     List = 102,
-    /// Кнопка «Добавить файлы…».
+    /// "Add files..." button.
     AddFiles = 103,
-    /// Кнопка «Добавить папку…».
+    /// "Add folder..." button.
     AddFolder = 104,
-    /// Кнопка «Убрать».
+    /// "Remove" button.
     Remove = 105,
-    /// Кнопка «Очистить».
+    /// "Clear" button.
     Clear = 106,
-    /// Кнопка «Закрыть».
+    /// "Close" button.
     Close = 107,
-    /// Поле «Папка вывода».
+    /// "Output folder" field.
     OutDir = 108,
-    /// Кнопка «Обзор…» для папки вывода.
+    /// "Browse..." button for the output folder.
     BrowseOut = 109,
-    /// Поле «Масштаб».
+    /// "Scale" field.
     Units = 110,
-    /// Список «Центрирование».
+    /// "Recenter" combo box.
     Recenter = 111,
-    /// Поле «Точек в узле».
+    /// "Points per tile" field.
     MaxTile = 112,
-    /// Поле «GUID».
+    /// "GUID" field.
     Guid = 113,
-    /// Флажок «Цвет».
+    /// "Colour" check box.
     ColorCheck = 114,
-    /// Флажок «Интенсивность».
+    /// "Intensity" check box.
     IntensityCheck = 115,
-    /// Флажок «Перезаписывать».
+    /// "Overwrite" check box.
     ForceCheck = 116,
-    /// Флажок «С подкаталогами».
+    /// "Include subfolders" check box.
     RecursiveCheck = 117,
-    /// Кнопка «Конвертировать» / «Отмена».
+    /// "Convert" / "Cancel" button.
     Convert = 118,
-    /// Кнопка «Открыть папку».
+    /// "Open folder" button.
     OpenOut = 119,
-    /// Подпись «Папка вывода».
+    /// "Output folder" label.
     LabelOutDir = 120,
-    /// Подпись «Масштаб».
+    /// "Scale" label.
     LabelUnits = 121,
-    /// Подпись «Центрирование».
+    /// "Recenter" label.
     LabelRecenter = 122,
-    /// Подпись «Точек в узле».
+    /// "Points per tile" label.
     LabelMaxTile = 123,
-    /// Подпись «GUID».
+    /// "GUID" label.
     LabelGuid = 124,
-    /// Полоса прогресса.
+    /// Progress bar.
     Progress = 125,
 }
 
 impl Id {
-    /// Значение для Win32 (`HMENU` при создании, младшее слово `wParam`).
+    /// Value for Win32 (`HMENU` at creation, low word of `wParam`).
     pub fn raw(self) -> usize {
         self as u16 as usize
     }
 }
 
-/// Прямоугольник в пикселях клиентской области.
+/// Rectangle in client-area pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
-    /// Левый край.
+    /// Left edge.
     pub x: i32,
-    /// Верхний край.
+    /// Top edge.
     pub y: i32,
-    /// Ширина.
+    /// Width.
     pub w: i32,
-    /// Высота.
+    /// Height.
     pub h: i32,
 }
 
-/// Раскладка главного окна.
+/// Main window layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layout {
-    /// Строка с версией.
+    /// Version line.
     pub title: Rect,
-    /// Подсказка (сколько файлов в очереди).
+    /// Hint (how many files are queued).
     pub hint: Rect,
-    /// Список файлов.
+    /// File list.
     pub list: Rect,
-    /// Подпись «Папка вывода».
+    /// "Output folder" label.
     pub label_out_dir: Rect,
-    /// Поле папки вывода.
+    /// Output folder field.
     pub out_dir: Rect,
-    /// Кнопка «Обзор…».
+    /// "Browse..." button.
     pub browse_out: Rect,
-    /// Подпись «Масштаб».
+    /// "Scale" label.
     pub label_units: Rect,
-    /// Поле масштаба.
+    /// Scale field.
     pub units: Rect,
-    /// Подпись «Центрирование».
+    /// "Recenter" label.
     pub label_recenter: Rect,
-    /// Список центрирования.
+    /// Recenter combo box.
     pub recenter: Rect,
-    /// Подпись «Точек в узле».
+    /// "Points per tile" label.
     pub label_max_tile: Rect,
-    /// Поле предела точек в узле.
+    /// Points per tile field.
     pub max_tile: Rect,
-    /// Подпись «GUID».
+    /// "GUID" label.
     pub label_guid: Rect,
-    /// Поле GUID.
+    /// GUID field.
     pub guid: Rect,
-    /// Флажок «Цвет».
+    /// "Colour" check box.
     pub color: Rect,
-    /// Флажок «Интенсивность».
+    /// "Intensity" check box.
     pub intensity: Rect,
-    /// Флажок «Перезаписывать».
+    /// "Overwrite" check box.
     pub force: Rect,
-    /// Флажок «С подкаталогами».
+    /// "Include subfolders" check box.
     pub recursive: Rect,
-    /// «Конвертировать» / «Отмена».
+    /// "Convert" / "Cancel".
     pub convert: Rect,
-    /// «Открыть папку».
+    /// "Open folder".
     pub open_out: Rect,
-    /// Полоса прогресса.
+    /// Progress bar.
     pub progress: Rect,
-    /// «Добавить файлы…».
+    /// "Add files...".
     pub add_files: Rect,
-    /// «Добавить папку…».
+    /// "Add folder...".
     pub add_folder: Rect,
-    /// «Убрать».
+    /// "Remove".
     pub remove: Rect,
-    /// «Очистить».
+    /// "Clear".
     pub clear: Rect,
-    /// «Закрыть».
+    /// "Close".
     pub close: Rect,
 }
 
-/// Заголовок главного окна.
-pub const WINDOW_TITLE: &str = "rcsconv — конвертер ReCap .rcs";
-/// Имя класса окна (только ASCII — так надёжнее для `RegisterClassW`).
+/// Main window title.
+pub const WINDOW_TITLE: &str = "rcsconv — ReCap .rcs converter";
+/// Window class name (ASCII only — safer for `RegisterClassW`).
 pub const WINDOW_CLASS: &str = "rcsconvGuiMain";
 
-/// Колонки списка файлов: подпись и ширина при 96 dpi.
+/// File list columns: label and width at 96 dpi.
 pub const COLUMNS: [(&str, i32); 4] =
-    [("Файл", 260), ("Папка", 320), ("Размер", 90), ("Состояние", 150)];
+    [("File", 260), ("Folder", 320), ("Size", 90), ("Status", 150)];
 
-/// Подсказка по умолчанию.
+/// Default hint.
 pub const HINT_EMPTY: &str =
-    "Перетащите .las/.laz/.pts в окно или нажмите «Добавить файлы…». Конвертация — фаза G4.";
+    "Drag .las/.laz/.pts into the window or press \"Add files...\". Press Convert to start.";
 
-/// Строка о версии для заголовка окна.
+/// Version line for the window title.
 pub fn version_line() -> String {
     format!("rcsconv {} — .las/.laz/.pts → ReCap .rcs", env!("CARGO_PKG_VERSION"))
 }
 
-/// Пиксели, рассчитанные на 96 dpi → физические пиксели при `dpi`.
+/// Pixels designed for 96 dpi -> physical pixels at `dpi`.
 pub fn scale(px: i32, dpi: u32) -> i32 {
     let dpi = if dpi == 0 { 96 } else { dpi } as i32;
     (px * dpi + 48) / 96
 }
 
-/// Минимальный размер клиентской области при 96 dpi (ширина, высота).
+/// Minimum client-area size at 96 dpi (width, height).
 pub const MIN_SIZE_96: (i32, i32) = (900, 480);
 
-/// Раскладка окна: заголовок, подсказка, ряд кнопок, список.
+/// Window layout: title, hint, button row, list.
 ///
-/// `width`/`height` — клиентская область в физических пикселях; размер
-/// поднимается до [`MIN_SIZE_96`] (окно не даёт сжать себя меньше — `WM_GETMINMAXINFO`).
+/// `width`/`height` are the client area in physical pixels; the size is raised to
+/// [`MIN_SIZE_96`] (the window refuses to shrink below it — `WM_GETMINMAXINFO`).
 pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
     let margin = scale(12, dpi);
     let line = scale(20, dpi);
@@ -197,7 +197,7 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
     let field_x = margin + label_w + gap / 2;
     let field_w = (width - margin - field_x).max(scale(80, dpi));
 
-    // Четыре строки параметров снизу вверх: поля GUID, точек, центрирования, флажки.
+    // Four parameter rows from the bottom up: GUID, points, recenter, check boxes.
     let checks_y = action_y - params_gap - row;
     let row3_y = checks_y - row_gap - row;
     let row2_y = row3_y - row_gap - row;
@@ -220,9 +220,9 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
     let recenter = Rect {
         x: recenter_label_x + scale(100, dpi),
         y: row2_y,
-        // Высота combo — это высота раскрытого списка; она намеренно выходит
-        // за строку (стандартное поведение Win32), поэтому в проверках границ
-        // прямоугольник не участвует.
+        // The combo height is the height of the open list; it deliberately exceeds
+        // the row (standard Win32 behaviour), so the rectangle is not part of
+        // the bounds checks.
         w: scale(140, dpi),
         h: scale(160, dpi),
     };
@@ -327,90 +327,90 @@ pub fn layout(width: i32, height: i32, dpi: u32) -> Layout {
     }
 }
 
-/// Состояние файла в очереди.
+/// State of a queued file.
 ///
-/// Все варианты, кроме [`EntryStatus::Waiting`], появятся в G4 (конвертация);
-/// держим их здесь, чтобы колонка «Состояние» была готова.
+/// All variants except [`EntryStatus::Waiting`] appear during conversion; they are
+/// kept here so the Status column is ready.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryStatus {
-    /// Ждёт конвертации.
+    /// Waiting for conversion.
     Waiting,
-    /// Конвертируется прямо сейчас.
+    /// Being converted right now.
     Running,
-    /// Файл записан.
+    /// The file was written.
     Written,
-    /// Пропущен (файл уже есть).
+    /// Skipped (the file already exists).
     Skipped,
-    /// Ошибка.
+    /// Error.
     Failed,
-    /// Отменён пользователем.
+    /// Cancelled by the user.
     Cancelled,
 }
 
 impl EntryStatus {
-    /// Подпись для колонки «Состояние».
+    /// Label for the Status column.
     pub fn label(self) -> &'static str {
         match self {
-            EntryStatus::Waiting => "в очереди",
-            EntryStatus::Running => "идёт…",
-            EntryStatus::Written => "готово",
-            EntryStatus::Skipped => "пропущен",
-            EntryStatus::Failed => "ошибка",
-            EntryStatus::Cancelled => "отменён",
+            EntryStatus::Waiting => "queued",
+            EntryStatus::Running => "running...",
+            EntryStatus::Written => "written",
+            EntryStatus::Skipped => "skipped",
+            EntryStatus::Failed => "failed",
+            EntryStatus::Cancelled => "cancelled",
         }
     }
 }
 
-/// Файл в очереди.
+/// A queued file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    /// Путь к файлу.
+    /// File path.
     pub path: PathBuf,
-    /// Размер в байтах (0, если не удалось узнать).
+    /// Size in bytes (0 when it could not be read).
     pub size: u64,
-    /// Состояние.
+    /// State.
     pub status: EntryStatus,
 }
 
-/// Очередь файлов на конвертацию.
+/// Queue of files to convert.
 ///
-/// Дубликаты отсекаются по каноническому пути, каталоги разворачиваются в файлы
-/// с нужными расширениями — то же делает [`rcs_conv::expand_sources`] в CLI,
-/// поэтому набор файлов в GUI и в CLI совпадает.
+/// Duplicates are dropped by canonical path and directories are expanded into files
+/// with the required extensions — the same [`rcs_conv::expand_sources`] the CLI
+/// uses, so the GUI and the CLI see the same file set.
 #[derive(Debug, Default, Clone)]
 pub struct Queue {
     entries: Vec<Entry>,
 }
 
 impl Queue {
-    /// Пустая очередь.
+    /// Empty queue.
     pub fn new() -> Queue {
         Queue::default()
     }
 
-    /// Число файлов.
+    /// Number of files.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    /// Пуста ли очередь.
+    /// Whether the queue is empty.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    /// Файлы очереди.
+    /// Files in the queue.
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
 
-    /// Пути файлов очереди (понадобится в G4 для запуска конвертации).
+    /// Paths of the queued files (needed to start the conversion).
     #[allow(dead_code)]
     pub fn paths(&self) -> Vec<PathBuf> {
         self.entries.iter().map(|entry| entry.path.clone()).collect()
     }
 
-    /// Добавить файлы, каталоги и маски; вернуть число новых файлов.
+    /// Add files, directories and masks; return the number of new files.
     pub fn add(&mut self, patterns: &[PathBuf], recursive: bool) -> usize {
         let as_text: Vec<String> =
             patterns.iter().map(|path| path.to_string_lossy().into_owned()).collect();
@@ -431,7 +431,7 @@ impl Queue {
         added
     }
 
-    /// Убрать файл по индексу; `true`, если что-то убрали.
+    /// Remove a file by index; `true` when something was removed.
     pub fn remove(&mut self, index: usize) -> bool {
         if index < self.entries.len() {
             self.entries.remove(index);
@@ -441,12 +441,12 @@ impl Queue {
         }
     }
 
-    /// Очистить очередь.
+    /// Clear the queue.
     pub fn clear(&mut self) {
         self.entries.clear();
     }
 
-    /// Сменить состояние файла (G4).
+    /// Change the state of a file.
     #[allow(dead_code)]
     pub fn set_status(&mut self, index: usize, status: EntryStatus) {
         if let Some(entry) = self.entries.get_mut(index) {
@@ -454,7 +454,7 @@ impl Queue {
         }
     }
 
-    /// Сбросить состояния всех файлов в «в очереди» (G4).
+    /// Reset every file state to queued.
     #[allow(dead_code)]
     pub fn reset_statuses(&mut self) {
         for entry in &mut self.entries {
@@ -462,48 +462,48 @@ impl Queue {
         }
     }
 
-    /// Суммарный размер файлов, байт.
+    /// Total size of the files, bytes.
     pub fn total_size(&self) -> u64 {
         self.entries.iter().map(|entry| entry.size).sum()
     }
 }
 
-/// Ключ для отсечения дубликатов: канонический путь, иначе исходный.
+/// Duplicate key: the canonical path, or the original one.
 fn canonical_key(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// Размер в байтах → человекочитаемая строка (`1.20 МБ`).
+/// Size in bytes -> human-readable string (`1.20 MB`).
 pub fn format_size(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     let value = bytes as f64;
     if value < KB {
-        format!("{bytes} Б")
+        format!("{bytes} B")
     } else if value < KB * KB {
-        format!("{:.1} КБ", value / KB)
+        format!("{:.1} KB", value / KB)
     } else if value < KB * KB * KB {
-        format!("{:.2} МБ", value / (KB * KB))
+        format!("{:.2} MB", value / (KB * KB))
     } else {
-        format!("{:.2} ГБ", value / (KB * KB * KB))
+        format!("{:.2} GB", value / (KB * KB * KB))
     }
 }
 
-/// Строка подсказки: сколько файлов и какой суммарный размер.
+/// Hint line: how many files and their total size.
 pub fn queue_hint(queue: &Queue) -> String {
     if queue.is_empty() {
         return HINT_EMPTY.to_string();
     }
     format!(
-        "В очереди {} файл(ов), {} — конвертация появится в фазе G4.",
+        "{} file(s) in the queue, {} total — press Convert to start.",
         queue.len(),
         format_size(queue.total_size())
     )
 }
 
-/// Разобрать буфер `GetOpenFileNameW` с `OFN_ALLOWMULTISELECT`.
+/// Parse the `GetOpenFileNameW` buffer with `OFN_ALLOWMULTISELECT`.
 ///
-/// Win32 пишет либо один полный путь, либо «каталог\0имя1\0имя2\0\0».
-/// Функция чистая (без Win32), поэтому проверяется обычным тестом.
+/// Win32 writes either one full path or "dir\0name1\0name2\0\0".
+/// The function is pure (no Win32), so a plain test covers it.
 pub fn parse_open_file_buffer(buffer: &[u16]) -> Vec<PathBuf> {
     let end_of_first = buffer.iter().position(|&value| value == 0).unwrap_or(buffer.len());
     if end_of_first == 0 {
@@ -536,14 +536,14 @@ mod tests {
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("rcs-gui-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("временный каталог");
+        std::fs::create_dir_all(&dir).expect("temporary directory");
         dir
     }
 
     #[test]
     fn scale_keeps_96_dpi_as_is() {
         assert_eq!(scale(12, 96), 12);
-        assert_eq!(scale(12, 0), 12, "0 dpi считается как 96");
+        assert_eq!(scale(12, 0), 12, "0 dpi is treated as 96");
         assert_eq!(scale(12, 192), 24);
         assert_eq!(scale(12, 144), 18);
     }
@@ -579,22 +579,22 @@ mod tests {
                 layout.close,
             ] {
                 assert!(rect.x >= 0 && rect.y >= 0, "{rect:?}");
-                assert!(rect.x + rect.w <= effective_width, "{rect:?} при ширине {width}");
-                assert!(rect.y + rect.h <= effective_height, "{rect:?} при высоте {height}");
+                assert!(rect.x + rect.w <= effective_width, "{rect:?} at width {width}");
+                assert!(rect.y + rect.h <= effective_height, "{rect:?} at height {height}");
             }
-            assert!(layout.list.y > layout.hint.y, "список ниже подсказки");
-            assert!(layout.list.h > 0, "список не вырожден");
-            assert!(layout.out_dir.y > layout.list.y, "параметры ниже списка");
-            assert!(layout.add_files.y > layout.recursive.y, "кнопки ниже параметров");
-            assert!(layout.close.x + layout.close.w <= effective_width, "«Закрыть» внутри окна");
-            assert!(layout.clear.x + layout.clear.w <= effective_width, "«Очистить» внутри окна");
-            assert!(layout.recenter.x + layout.recenter.w <= effective_width, "combo внутри окна");
+            assert!(layout.list.y > layout.hint.y, "the list is below the hint");
+            assert!(layout.list.h > 0, "the list is not degenerate");
+            assert!(layout.out_dir.y > layout.list.y, "parameters are below the list");
+            assert!(layout.add_files.y > layout.recursive.y, "buttons are below the parameters");
+            assert!(layout.close.x + layout.close.w <= effective_width, "Close is inside the window");
+            assert!(layout.clear.x + layout.clear.w <= effective_width, "Clear is inside the window");
+            assert!(layout.recenter.x + layout.recenter.w <= effective_width, "the combo box is inside the window");
         }
     }
 
     #[test]
     fn layout_survives_tiny_window() {
-        // Окно меньше минимума: раскладка поднимает размер до MIN_SIZE_96.
+        // The window is below the minimum: the layout raises the size to MIN_SIZE_96.
         let layout = layout(10, 10, 96);
         assert!(layout.list.w > 0 && layout.list.h > 0, "{:?}", layout.list);
         assert!(layout.add_files.w > 0);
@@ -614,7 +614,7 @@ mod tests {
         ];
         for (index, id) in ids.iter().enumerate() {
             assert!(id.raw() < 0x10000);
-            assert!(!ids[..index].contains(id), "id {id:?} повторяется");
+            assert!(!ids[..index].contains(id), "id {id:?} repeats");
         }
     }
 
@@ -627,9 +627,9 @@ mod tests {
 
     #[test]
     fn format_size_units() {
-        assert_eq!(format_size(512), "512 Б");
-        assert_eq!(format_size(2048), "2.0 КБ");
-        assert_eq!(format_size(5 * 1024 * 1024), "5.00 МБ");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(2048), "2.0 KB");
+        assert_eq!(format_size(5 * 1024 * 1024), "5.00 MB");
     }
 
     #[test]
@@ -638,12 +638,12 @@ mod tests {
         buffer.push(0);
         buffer.push(0);
         assert_eq!(parse_open_file_buffer(&buffer), vec![PathBuf::from("D:\\scan\\one.laz")]);
-        assert!(parse_open_file_buffer(&[0, 0]).is_empty(), "пустой буфер — ничего");
+        assert!(parse_open_file_buffer(&[0, 0]).is_empty(), "an empty buffer means nothing");
     }
 
     #[test]
     fn open_file_buffer_multi_select() {
-        // Каталог, затем имена файлов, затем пустая строка.
+        // Directory, then file names, then an empty string.
         let mut buffer: Vec<u16> = "D:\\scan".encode_utf16().collect();
         for name in ["a.laz", "b.las"] {
             buffer.push(0);
@@ -660,20 +660,20 @@ mod tests {
     #[test]
     fn queue_adds_files_directories_and_skips_duplicates() {
         let dir = temp_dir("queue");
-        std::fs::create_dir_all(dir.join("sub")).expect("подкаталог");
+        std::fs::create_dir_all(dir.join("sub")).expect("subdirectory");
         for name in ["a.laz", "b.LAS", "c.pts", "notes.txt"] {
-            std::fs::write(dir.join(name), b"0123456789").expect("файл");
+            std::fs::write(dir.join(name), b"0123456789").expect("file");
         }
-        std::fs::write(dir.join("sub").join("d.laz"), b"01234").expect("файл");
+        std::fs::write(dir.join("sub").join("d.laz"), b"01234").expect("file");
 
         let mut queue = Queue::new();
-        assert_eq!(queue.add(&[dir.clone()], false), 3, "без обхода: файлы каталога");
+        assert_eq!(queue.add(&[dir.clone()], false), 3, "no recursion: directory files");
         assert_eq!(queue.len(), 3);
 
-        assert_eq!(queue.add(&[dir.clone()], false), 0, "дубликаты не добавляются");
+        assert_eq!(queue.add(&[dir.clone()], false), 0, "duplicates are not added");
         assert_eq!(queue.len(), 3);
 
-        assert_eq!(queue.add(&[dir.clone()], true), 1, "с обходом подкаталогов");
+        assert_eq!(queue.add(&[dir.clone()], true), 1, "with subdirectory recursion");
         assert_eq!(queue.len(), 4);
         assert!(queue.total_size() > 0);
         assert!(queue_hint(&queue).contains('4'), "{}", queue_hint(&queue));
@@ -692,7 +692,7 @@ mod tests {
     fn queue_statuses_are_reset() {
         let dir = temp_dir("status");
         let file = dir.join("a.laz");
-        std::fs::write(&file, b"x").expect("файл");
+        std::fs::write(&file, b"x").expect("file");
 
         let mut queue = Queue::new();
         queue.add(&[file], false);
@@ -700,7 +700,7 @@ mod tests {
         assert_eq!(queue.entries()[0].status, EntryStatus::Written);
         queue.reset_statuses();
         assert_eq!(queue.entries()[0].status, EntryStatus::Waiting);
-        assert_eq!(EntryStatus::Waiting.label(), "в очереди");
+        assert_eq!(EntryStatus::Waiting.label(), "queued");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

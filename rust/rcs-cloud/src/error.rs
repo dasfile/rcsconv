@@ -1,52 +1,52 @@
-//! Ошибки слоя облака.
+//! Cloud layer errors.
 
 use std::fmt;
 
-/// Результат операций сборки.
+/// Result of build operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Облако не удалось прочитать или разложить по узлам.
+/// The cloud could not be read or split into tiles.
 #[derive(Debug)]
 pub enum Error {
-    /// Ошибка ввода-вывода.
+    /// Input/output error.
     Io(std::io::Error),
-    /// Ошибка слоя формата.
+    /// Format layer error.
     Format(rcs_format::Error),
-    /// В источнике нет точек.
+    /// The source contains no points.
     EmptyCloud,
-    /// Предел точек в узле вне допустимого диапазона.
+    /// Points per tile limit is outside the allowed range.
     MaxPerTile(u32),
-    /// Точки не разводятся по ячейкам: дубликаты в одной точке.
+    /// Points cannot be split into cells: duplicates at one position.
     DepthExceeded,
-    /// Координата не помещается в `u16` при квантовании.
+    /// A coordinate does not fit into `u16` during quantisation.
     PointOutOfCube { axis: usize, value: f64 },
-    /// Ошибка чтения источника (формат входа).
+    /// Source read error (input format).
     Source(String),
-    /// Пользователь отменил операцию (проверка [`crate::progress::Progress`]).
+    /// The user cancelled the operation (checked via [`crate::progress::Progress`]).
     Cancelled,
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Io(err) => write!(f, "ввод-вывод: {err}"),
-            Error::Format(err) => write!(f, "формат .rcs: {err}"),
-            Error::EmptyCloud => write!(f, "в источнике нет точек"),
+            Error::Io(err) => write!(f, "I/O: {err}"),
+            Error::Format(err) => write!(f, ".rcs format: {err}"),
+            Error::EmptyCloud => write!(f, "the source contains no points"),
             Error::MaxPerTile(value) => write!(
                 f,
-                "max_points_per_tile={value}: допустимо 1…{} (в узле не может быть \
-                 больше тел, чем вмещает u16 index)",
+                "max_points_per_tile={value}: allowed 1..{} (a tile cannot hold \
+                 more bodies than the u16 index in the payload header)",
                 crate::MAX_TILE_POINTS
             ),
             Error::DepthExceeded => {
-                write!(f, "не удалось развести точки по ячейкам — есть дубликаты")
+                write!(f, "cannot split points into cells: duplicate points")
             }
             Error::PointOutOfCube { axis, value } => write!(
                 f,
-                "координата по оси {axis} ({value}) не помещается в u16"
+                "coordinate on axis {axis} ({value}) does not fit into u16"
             ),
             Error::Source(text) => write!(f, "{text}"),
-            Error::Cancelled => write!(f, "отменено пользователем"),
+            Error::Cancelled => write!(f, "cancelled by user"),
         }
     }
 }

@@ -1,16 +1,18 @@
-//! Чтение LAS/LAZ как источника точек для `.rcs`.
+//! Reading LAS/LAZ as a point source for `.rcs`.
 //!
-//! Порт `tools/las_read.py`. Декомпрессия LAZ — крейт `laz` (чистый Rust, без
-//! внешних DLL): поэтому `rcsconv.exe` остаётся одним файлом (`docs/ROADMAP.md` §2).
+//! Port of `tools/las_read.py`. LAZ decompression uses the `laz` crate (pure
+//! Rust, no external DLLs), so `rcsconv.exe` stays a single file
+//! (`docs/ROADMAP.md` 2).
 //!
-//! Правила формата `.rcs` поверх LAS: 16-битные цвет и интенсивность приводятся
-//! к 8 битам (`auto` = ÷257, если максимум по файлу > 255), координаты можно
-//! масштабировать (`--units-scale`) и сдвигать (`--recenter`).
+//! `.rcs` rules on top of LAS: 16-bit colour and intensity are reduced to 8 bits
+//! (`auto` = divide by 257 when the file maximum is > 255), coordinates can be
+//! scaled (`--units-scale`) and shifted (`--recenter`).
 //!
-//! ПОДТВЕРЖДЕНО (паритет с Python): `bounds()` берёт bbox **из заголовка LAS**
-//! (а не из точек), `count` — `number_of_points`; максимумы цвета и
-//! интенсивности считаются по **всему файлу**, как `laspy.chunk_iterator` в
-//! эталоне, хотя в коде Python параметр называется `sample`.
+//! CONFIRMED (parity with Python): `bounds()` takes the bbox **from the LAS
+//! header** (not from the points), `count` is `number_of_points`; colour and
+//! intensity maxima are computed over the **whole file**, like
+//! `laspy.chunk_iterator` in the reference, even though the Python parameter is
+//! called `sample`.
 
 #![forbid(unsafe_code)]
 
@@ -20,19 +22,19 @@ use std::path::PathBuf;
 use rcs_cloud::progress::{NoProgress, Progress, Stage};
 use rcs_cloud::{Bounds, CloudPoint, Error, Result, Source};
 
-/// Откуда вычитать координаты при `--recenter`.
+/// What to subtract from coordinates under `--recenter`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Recenter {
-    /// Не сдвигать.
+    /// Do not shift.
     None,
-    /// Вычесть центр bbox.
+    /// Subtract the bbox centre.
     Center,
-    /// Вычесть минимум bbox.
+    /// Subtract the bbox minimum.
     Min,
 }
 
 impl Recenter {
-    /// Разобрать значение аргумента.
+    /// Parse the argument value.
     pub fn parse(text: &str) -> Option<Recenter> {
         match text {
             "none" => Some(Recenter::None),
@@ -43,19 +45,19 @@ impl Recenter {
     }
 }
 
-/// Как переводить 16-битные атрибуты LAS в 8-битные `.rcs`.
+/// How to convert 16-bit LAS attributes to 8-bit `.rcs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScaleMode {
-    /// ÷257, если максимум по файлу > 255, иначе 1.
+    /// Divide by 257 when the file maximum is > 255, otherwise use 1.
     Auto,
-    /// Всегда ÷257.
+    /// Always divide by 257.
     Div257,
-    /// Всегда 1 (значения уже 0…255).
+    /// Always 1 (values are already 0..255).
     One,
 }
 
 impl ScaleMode {
-    /// Разобрать значение аргумента.
+    /// Parse the argument value.
     pub fn parse(text: &str) -> Option<ScaleMode> {
         match text {
             "auto" => Some(ScaleMode::Auto),
@@ -65,7 +67,7 @@ impl ScaleMode {
         }
     }
 
-    /// Множитель для атрибута с данным максимумом.
+    /// Multiplier for an attribute with the given maximum.
     pub fn factor(self, maximum: u16) -> f64 {
         match self {
             ScaleMode::One => 1.0,
@@ -81,20 +83,20 @@ impl ScaleMode {
     }
 }
 
-/// Как превращать LAS в точки `.rcs`.
+/// How to turn LAS into `.rcs` points.
 #[derive(Debug, Clone)]
 pub struct LasOptions {
-    /// Множитель координат (футы → метры: 0.3048).
+    /// Coordinate multiplier (feet -> metres: 0.3048).
     pub units: f64,
-    /// Сдвиг координат.
+    /// Coordinate shift.
     pub recenter: Recenter,
-    /// Читать цвет.
+    /// Read colour.
     pub color: bool,
-    /// Читать интенсивность.
+    /// Read intensity.
     pub intensity: bool,
-    /// Режим цвета.
+    /// Colour mode.
     pub color_scale: ScaleMode,
-    /// Режим интенсивности.
+    /// Intensity mode.
     pub intensity_scale: ScaleMode,
 }
 
@@ -111,10 +113,10 @@ impl Default for LasOptions {
     }
 }
 
-/// Сколько точек читать за один заход (пакеты `read_points_into`).
+/// How many points to read per pass (with `read_points_into`).
 const READ_CHUNK: u64 = 1 << 16;
 
-/// Что берётся из заголовка LAS: bbox, `count`, наличие цвета.
+/// What is taken from the LAS header: bbox, `count`, colour presence.
 #[derive(Debug, Clone, Copy)]
 struct HeaderInfo {
     count: u64,
@@ -123,10 +125,11 @@ struct HeaderInfo {
     has_color: bool,
 }
 
-/// Источник точек LAS/LAZ.
+/// LAS/LAZ point source.
 ///
-/// `bounds()` читает **только заголовок**, точки — при первом `points()`/`points_with()`
-/// и кешируются (`points()` забирает вектор, повторный вызов перечитывает файл).
+/// `bounds()` reads **only the header**, points are read on the first
+/// `points()`/`points_with()` and cached (`points()` takes the vector, a second
+/// call re-reads the file).
 pub struct LasSource {
     path: PathBuf,
     options: LasOptions,
@@ -135,7 +138,7 @@ pub struct LasSource {
 }
 
 impl LasSource {
-    /// Источник для пути с настройками чтения.
+    /// Source for a path with read settings.
     pub fn new(path: impl Into<PathBuf>, options: LasOptions) -> LasSource {
         LasSource {
             path: path.into(),
@@ -145,7 +148,7 @@ impl LasSource {
         }
     }
 
-    /// Заголовок файла (читается один раз).
+    /// File header (read once).
     fn header_info(&self) -> Result<HeaderInfo> {
         if let Some(info) = self.header.borrow().as_ref() {
             return Ok(*info);
@@ -163,7 +166,7 @@ impl LasSource {
         Ok(info)
     }
 
-    /// Прочитать и закешировать точки (повторный вызов — без чтения).
+    /// Read and cache the points (a repeated call does not read the file).
     fn ensure_loaded(&self, progress: &dyn Progress) -> Result<()> {
         if self.cache.borrow().is_some() {
             return Ok(());
@@ -175,8 +178,8 @@ impl LasSource {
         let high = info.high;
         let mut reader = las::Reader::from_path(&self.path).map_err(map_error)?;
 
-        // Читаем пакетами: результат тот же, что у `read_all_points_into`,
-        // но появляется возможность отчитываться о прогрессе и отменять.
+        // Read in chunks: same result as `read_all_points_into`, but it allows
+        // reporting progress and cancelling.
         let mut raw: Vec<las::Point> = Vec::with_capacity(count as usize);
         progress.stage(Stage::Read, 0, count);
         loop {
@@ -193,7 +196,7 @@ impl LasSource {
             }
         }
 
-        // Максимумы — по всему файлу: так же считает эталон (`chunk_iterator`).
+        // Maxima over the whole file: the reference counts the same way (`chunk_iterator`).
         let mut color_max = 0u16;
         let mut intensity_max = 0u16;
         for point in &raw {
@@ -252,18 +255,18 @@ impl LasSource {
         Ok(())
     }
 
-    /// Забрать прочитанные точки из кеша.
+    /// Take the loaded points out of the cache.
     fn take(&self) -> Vec<CloudPoint> {
         self.cache.borrow_mut().take().unwrap_or_default()
     }
 }
 
-/// Ошибка `las` → ошибка облака.
+/// `las` error -> cloud error.
 fn map_error(err: las::Error) -> Error {
     Error::Source(format!("LAS/LAZ: {err}"))
 }
 
-/// 16-битное значение атрибута → 0…255 (округление как в Python).
+/// 16-bit attribute value -> 0..=255 (rounding as in Python).
 fn to8(value: u16, scale: f64) -> u8 {
     let scaled = rcs_cloud::round_half_even(value as f64 * scale);
     if scaled <= 0.0 {

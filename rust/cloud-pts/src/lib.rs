@@ -1,11 +1,12 @@
-//! Чтение `.pts` (текст Leica Cyclone): `x y z [intensity] r g b`.
+//! Reading `.pts` (Leica Cyclone text): `x y z [intensity] r g b`.
 //!
-//! Порт `tools/pts_read.py`; формат входа — `docs/RCS-FORMAT.md`, Приложение D.
-//! Первая строка может быть числом точек (тогда она не разберётся как строка
-//! координат и просто пропускается), колонок 3…7, интенсивность необязательна.
+//! Port of `tools/pts_read.py`; the input format is described in
+//! `docs/RCS-FORMAT.md`, Appendix D. The first line may be the point count (then
+//! it is not parsed as coordinates and is simply skipped); there are 3..7
+//! columns and intensity is optional.
 //!
-//! Порядок точек сохраняется как в файле — это важно для побайтового паритета
-//! с Python-эталоном.
+//! Point order is preserved as in the file — this matters for byte parity with
+//! the Python reference.
 
 #![forbid(unsafe_code)]
 
@@ -15,22 +16,22 @@ use std::path::PathBuf;
 use rcs_cloud::progress::{NoProgress, Progress, Stage};
 use rcs_cloud::{Bounds, CloudPoint, Error, Result, Source};
 
-/// Сколько строк разбирать между отчётами о прогрессе.
+/// How many lines to parse between progress reports.
 const REPORT_LINES: usize = 1 << 16;
 
-/// Источник точек `.pts`.
+/// `.pts` point source.
 pub struct PtsSource {
     path: PathBuf,
     cache: RefCell<Option<Vec<CloudPoint>>>,
 }
 
 impl PtsSource {
-    /// Источник для пути.
+    /// Source for a path.
     pub fn new(path: impl Into<PathBuf>) -> PtsSource {
         PtsSource { path: path.into(), cache: RefCell::new(None) }
     }
 
-    /// Прочитать файл один раз (с отчётом о прогрессе по байтам).
+    /// Read the file once (reporting progress by bytes).
     fn ensure_loaded(&self, progress: &dyn Progress) -> Result<()> {
         if self.cache.borrow().is_some() {
             return Ok(());
@@ -57,13 +58,13 @@ impl PtsSource {
         Ok(())
     }
 
-    /// Забрать прочитанные точки из кеша.
+    /// Take the loaded points out of the cache.
     fn take(&self) -> Vec<CloudPoint> {
         self.cache.borrow_mut().take().unwrap_or_default()
     }
 }
 
-/// Разобрать строку `.pts`; `None` — строка не является точкой (шапка, мусор).
+/// Parse a `.pts` line; `None` means the line is not a point (header, garbage).
 fn parse_line(line: &str) -> Option<CloudPoint> {
     let mut parts = line.split_whitespace();
     let mut coord = [0.0f64; 3];
@@ -94,7 +95,7 @@ fn parse_line(line: &str) -> Option<CloudPoint> {
     ))
 }
 
-/// Привести значение к 0…255.
+/// Clamp a value to 0..=255.
 fn clamp8(value: i64) -> u8 {
     value.clamp(0, 255) as u8
 }
@@ -107,10 +108,10 @@ impl Source for PtsSource {
     fn bounds_with(&self, progress: &dyn Progress) -> Result<Bounds> {
         self.ensure_loaded(progress)?;
         let cache = self.cache.borrow();
-        let points = cache.as_ref().expect("файл прочитан");
+        let points = cache.as_ref().expect("file has been read");
         if points.is_empty() {
             return Err(Error::Source(format!(
-                "в {} нет точек",
+                "no points in {}",
                 self.path.display()
             )));
         }
@@ -148,20 +149,20 @@ mod tests {
 
     #[test]
     fn line_with_three_columns() {
-        let point = parse_line("1.5 2.5 -3.5").expect("точка");
+        let point = parse_line("1.5 2.5 -3.5").expect("point");
         assert_eq!(point.xyz(), [1.5, 2.5, -3.5]);
         assert_eq!((point.intensity, point.r, point.g, point.b), (0, 0, 0, 0));
     }
 
     #[test]
     fn line_with_intensity_and_color() {
-        let point = parse_line("-0.5 0 1 42 10 20 30").expect("точка");
+        let point = parse_line("-0.5 0 1 42 10 20 30").expect("point");
         assert_eq!((point.intensity, point.r, point.g, point.b), (42, 10, 20, 30));
     }
 
     #[test]
     fn line_with_color_only() {
-        let point = parse_line("0 0 0 255 1 2").expect("точка");
+        let point = parse_line("0 0 0 255 1 2").expect("point");
         assert_eq!((point.intensity, point.r, point.g, point.b), (0, 255, 1, 2));
     }
 
@@ -173,7 +174,7 @@ mod tests {
 
     #[test]
     fn values_are_clamped() {
-        let point = parse_line("0 0 0 300 -5 1000 7").expect("точка");
+        let point = parse_line("0 0 0 300 -5 1000 7").expect("point");
         assert_eq!((point.intensity, point.r, point.g, point.b), (255, 0, 255, 7));
     }
 }

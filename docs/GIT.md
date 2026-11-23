@@ -1,101 +1,103 @@
-# Git: как выложить проект на GitHub и как с ним жить
+# Git: publishing the project on GitHub and living with it
 
-Короткий практикум. Все команды выполняются в каталоге проекта (`C:\dev\rcsconv`
-или где он у тебя лежит). Заменяй `<ник>` и `<repo>` своими значениями.
+A short practical guide. All commands run in the project directory (`C:\dev\rcsconv`
+or wherever it lives). Replace `<nick>` and `<repo>` with your values.
 
-## 1. Один раз настроить
+## 1. One-time setup
 
 ```powershell
-git --version                       # git установлен?
+git --version                       # is git installed?
 git config --global user.name  "Ivan Rodionov"
-git config --global user.email "твой@email"     # тот же, что на GitHub
+git config --global user.email "your@email"     # the same as on GitHub
 git config --global init.defaultBranch main
 ```
 
-Если не хочешь публиковать личный e-mail — в GitHub: `Settings → Emails →
-Keep my email addresses private`, и укажи в git адрес вида
-`<id>+<ник>@users.noreply.github.com`.
+If you do not want to publish your personal e-mail: on GitHub go to
+`Settings -> Emails -> Keep my email addresses private` and use an address like
+`<id>+<nick>@users.noreply.github.com` in git.
 
-В репозитории уже настроено: `.gitignore` (не пускает `golden/`, `out/`, `dumps/`,
-`usernotes.txt`), `.gitattributes` (переносы строк и бинарные файлы), ветка `main`.
+Already configured in the repository: `.gitignore` (keeps out `golden/`, `out/`,
+`dumps/`, `docs-rus/`, `usernotes.txt`, `rust/target/`), `.gitattributes` (line
+endings and binary files), branch `main`.
 
-## 2. Создать репозиторий на GitHub
+## 2. Create a repository on GitHub
 
-1. `github.com → New repository`.
-2. Имя: `<repo>` (например `rcsconv`), видимость: Public, лицензию/README/.gitignore
-   **не добавлять** — они уже есть в проекте.
-3. Скопируй адрес вида `https://github.com/<ник>/<repo>.git`.
+1. `github.com -> New repository`.
+2. Name: `<repo>` (for example `rcsconv`), visibility: Public, do **not** add a
+   license/README/.gitignore — they already exist in the project.
+3. Copy the address `https://github.com/<nick>/<repo>.git`.
 
-## 3. Привязать и запушить
+## 3. Connect and push
 
 ```powershell
-git remote add origin https://github.com/<ник>/<repo>.git
-git remote -v                       # проверить, что origin добавлен
-git branch -M main                  # ветка называется main
+git remote add origin https://github.com/<nick>/<repo>.git
+git remote -v                       # check that origin was added
+git branch -M main                  # the branch is called main
 git push -u origin main
 ```
 
-**Пароль не подойдёт.** GitHub просит *Personal Access Token*:
-`Settings → Developer settings → Personal access tokens → Fine-grained tokens →
-Generate new token`, права `Contents: Read and write` на этот репозиторий.
-В окне «Password» вставляй токен. Проще один раз поставить
-`Git Credential Manager` (идёт с Git for Windows) — тогда токен запомнится.
+**A password will not work.** GitHub asks for a *Personal Access Token*:
+`Settings -> Developer settings -> Personal access tokens -> Fine-grained tokens ->
+Generate new token`, with `Contents: Read and write` on this repository. Paste the
+token into the "Password" prompt. Simpler: install `Git Credential Manager` once (it
+ships with Git for Windows) and the token is remembered.
 
-## 4. Ежедневный цикл
+## 4. Daily cycle
 
 ```powershell
-git status                 # что изменено (безопасно, ничего не меняет)
-git diff                   # что именно изменилось построчно
-git add -A                 # подготовить все изменения
-git commit -m "что сделано" # зафиксировать снимок
-git push                   # отправить на GitHub
+git status                 # what changed (safe, changes nothing)
+git diff                   # what exactly changed, line by line
+git add -A                 # stage all changes
+git commit -m "what was done" # record a snapshot
+git push                   # send to GitHub
 ```
 
-Полезное:
+Useful:
 
-| Команда | Зачем |
+| Command | Why |
 |---|---|
-| `git log --oneline -10` | последние 10 коммитов |
-| `git diff --stat` | какие файлы изменены и насколько |
-| `git show --stat HEAD` | что вошло в последний коммит |
-| `git status --short` | короткий вид |
+| `git log --oneline -10` | the last 10 commits |
+| `git diff --stat` | which files changed and by how much |
+| `git show --stat HEAD` | what went into the latest commit |
+| `git status --short` | compact view |
 
-## 5. Если что-то пошло не так
-
-```powershell
-git restore <файл>          # отменить несохранённые правки файла
-git restore --staged <файл> # убрать файл из подготовки (правки останутся)
-git reset --soft HEAD~1     # отменить последний коммит, изменения останутся
-git commit --amend -m "…"   # поправить сообщение последнего коммита (до push)
-```
-
-«Необратимо» — только `git reset --hard` и `git push --force`; без них всё
-восстановимо. Если сомневаешься — сначала `git status` и `git log`.
-
-## 6. Что не коммитить
-
-- `golden/` (данные и эталоны Autodesk), `out/` (результаты), `dumps/`;
-- личные заметки (`usernotes.txt` уже в `.gitignore`);
-- GitHub не принимает файлы больше 100 МБ — наши данные как раз такие.
-
-Проверка перед push: `git status --short` — в списке не должно быть ничего из
-`golden/` или `out/`. Если файл случайно попал в индекс, но не в коммит:
-`git restore --staged <файл>`.
-
-## 7. Ветки (когда понадобятся)
+## 5. If something went wrong
 
 ```powershell
-git switch -c feature/имя     # новая ветка от текущей
-git switch main               # вернуться
-git merge feature/имя         # влить в main (из main)
+git restore <file>          # discard unsaved edits of a file
+git restore --staged <file> # unstage a file (edits stay)
+git reset --soft HEAD~1     # undo the last commit, changes stay
+git commit --amend -m "..." # fix the last commit message (before push)
 ```
 
-## 8. Что уже лежит в репозитории для GitHub
+"Irreversible" applies only to `git reset --hard` and `git push --force`; without
+them everything is recoverable. If in doubt, run `git status` and `git log` first.
 
-- `README.md` — витрина (что умеет, как проверялось, как это сделано);
-- `LICENSE` (MIT), `pyproject.toml` (метадата), `.gitattributes`;
-- `.github/workflows/tests.yml` — после первого push GitHub сам прогонит 85 тестов
-  на Python 3.11/3.12 и покажет галочку;
-- бейджи в README (добавить после создания репозитория):
-  `![tests](https://github.com/<ник>/<repo>/actions/workflows/tests.yml/badge.svg)`
-  и `![license](https://img.shields.io/badge/license-MIT-blue)`.
+## 6. What not to commit
+
+- `golden/` (Autodesk data and reference files), `out/` (results), `dumps/`;
+- the Russian documentation mirror `docs-rus/` (local only by design);
+- personal notes (`usernotes.txt` is already in `.gitignore`);
+- GitHub rejects files larger than 100 MB — our data is exactly that size.
+
+Check before pushing: `git status --short` must not list anything from `golden/` or
+`out/`. If a file accidentally got into the index but not into the commit:
+`git restore --staged <file>`.
+
+## 7. Branches (when needed)
+
+```powershell
+git switch -c feature/name     # a new branch from the current one
+git switch main                # go back
+git merge feature/name         # merge into main (run from main)
+```
+
+## 8. What the repository already contains for GitHub
+
+- `README.md` — the shop window (what it does, how it was verified, how it was made);
+- `LICENSE` (MIT), `pyproject.toml` (metadata), `.gitattributes`;
+- `.github/workflows/tests.yml` — after the first push GitHub runs 85 Python tests on
+  3.11/3.12 and `cargo test --workspace` on stable Rust, and shows a tick;
+- badges for the README (add after creating the repository):
+  `![tests](https://github.com/<nick>/<repo>/actions/workflows/tests.yml/badge.svg)`
+  and `![license](https://img.shields.io/badge/license-MIT-blue)`.

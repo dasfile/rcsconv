@@ -1,8 +1,9 @@
-//! Сборка `.rcs` из облака точек: октодерево, блоки, заголовок.
+//! Building a `.rcs` from a point cloud: octree, blocks, header.
 //!
-//! Порт `tools/rcs_build.build_from_source` — все блоки генерируются, шаблон не
-//! нужен (`.clinerules` п.14). Порядок узлов — DFS (`subtree_key`), внутри узла —
-//! порядок точек файла; именно так получается побайтовый паритет с Python.
+//! Port of `tools/rcs_build.build_from_source`: every block is generated, no
+//! template is needed (`.clinerules` 14). Tile order is DFS (`subtree_key`),
+//! points inside a tile keep file order; this is what makes the byte parity
+//! with the Python reference work.
 
 use std::collections::HashMap;
 
@@ -17,15 +18,15 @@ use crate::progress::{NoProgress, Progress, Stage};
 use crate::source::{Bounds, Source};
 use crate::{BBOX_ROUND, DEFAULT_CHUNK_ID, MAX_TILE_POINTS};
 
-/// Как часто отчитываться о прогрессе и проверять отмену, точек.
+/// How often to report progress and check for cancellation, in points.
 const REPORT_EVERY: usize = 1 << 16;
 
-/// Как собирать `.rcs`.
+/// How to build the `.rcs`.
 #[derive(Debug, Clone)]
 pub struct BuildOptions {
-    /// Предел точек в узле (`1…65536`); по умолчанию — предел формата.
+    /// Points per tile limit (`1..=65536`); the format limit by default.
     pub max_per_tile: u32,
-    /// Подменить GUID (по умолчанию — новый случайный).
+    /// Replace the GUID (a new random one by default).
     pub guid: Option<String>,
 }
 
@@ -35,36 +36,36 @@ impl Default for BuildOptions {
     }
 }
 
-/// Что получилось (для отчёта CLI и журнала).
+/// What was produced (for the CLI report and the log).
 #[derive(Debug, Clone)]
 pub struct Stats {
-    /// `count` из заголовка источника.
+    /// `count` from the source header.
     pub points: u64,
-    /// Число узлов (записей `type 3`).
+    /// Number of tiles (`type 3` records).
     pub tiles: usize,
-    /// Глубина октодерева.
+    /// Octree depth.
     pub depth: u32,
-    /// Ребро плитки, м.
+    /// Tile edge, metres.
     pub tile_edge: f64,
-    /// Полуширина корневого куба.
+    /// Half-width of the root cube.
     pub root_half: f64,
-    /// Центр bbox (он же `center` заголовка).
+    /// bbox centre (also the header `center`).
     pub center: [f64; 3],
-    /// Полупротяжённость bbox (`extent`).
+    /// bbox half-extent (`extent`).
     pub extent: [f64; 3],
-    /// Слова блока `type 1` — занятые узлы по уровням.
+    /// Words of the `type 1` block — occupied tiles per level.
     pub metadata_words: Vec<u32>,
-    /// Число 72-байтовых записей блока `type 1`.
+    /// Number of 72-byte records in the `type 1` block.
     pub metadata_records: usize,
-    /// Максимум точек в узле.
+    /// Maximum points in a tile.
     pub max_points_per_tile: usize,
-    /// Предел, с которым собирали.
+    /// Limit used for the build.
     pub max_per_tile: u32,
-    /// Размер файла, байт.
+    /// File size, bytes.
     pub size: usize,
 }
 
-/// Собрать `.rcs` из источника точек.
+/// Build a `.rcs` from a point source.
 pub fn build_from_source(
     source: &mut dyn Source,
     options: &BuildOptions,
@@ -72,7 +73,7 @@ pub fn build_from_source(
     build_from_source_with(source, options, &NoProgress)
 }
 
-/// Собрать `.rcs` из источника, отчитываясь о прогрессе и слушая отмену.
+/// Build a `.rcs` from a source while reporting progress and listening for cancellation.
 pub fn build_from_source_with(
     source: &mut dyn Source,
     options: &BuildOptions,
@@ -87,7 +88,7 @@ pub fn build_from_source_with(
     build_from_points_with(&points, &bounds, options, progress)
 }
 
-/// Собрать `.rcs` из готового набора точек.
+/// Build a `.rcs` from an already loaded point set.
 pub fn build_from_points(
     points: &[CloudPoint],
     bounds: &Bounds,
@@ -96,7 +97,7 @@ pub fn build_from_points(
     build_from_points_with(points, bounds, options, &NoProgress)
 }
 
-/// Собрать `.rcs` из готового набора точек, отчитываясь о прогрессе.
+/// Build a `.rcs` from an already loaded point set while reporting progress.
 pub fn build_from_points_with(
     points: &[CloudPoint],
     bounds: &Bounds,
@@ -124,7 +125,7 @@ pub fn build_from_points_with(
 
     check_cancel(progress)?;
 
-    // Группировка: ячейка → индексы точек в порядке файла.
+    // Grouping: cell -> point indices in file order.
     let mut cells: HashMap<Cell, Vec<u32>> = HashMap::new();
     for (index, point) in points.iter().enumerate() {
         let local = [
@@ -144,7 +145,7 @@ pub fn build_from_points_with(
     progress.stage(Stage::Octree, total, total);
     check_cancel(progress)?;
 
-    // DFS-порядок узлов.
+    // DFS tile order.
     let mut order: Vec<(Vec<u8>, Cell)> = cells
         .keys()
         .map(|cell| (octree::subtree_key(*cell, depth), *cell))
@@ -215,7 +216,7 @@ pub fn build_from_points_with(
     Ok((blob, stats))
 }
 
-/// Прервать сборку, если пришла отмена.
+/// Stop the build when a cancellation arrives.
 fn check_cancel(progress: &dyn Progress) -> Result<()> {
     if progress.cancelled() {
         Err(Error::Cancelled)
@@ -225,7 +226,7 @@ fn check_cancel(progress: &dyn Progress) -> Result<()> {
 }
 
 
-/// Запись узла в `type 3` и payload узла в `type 11`.
+/// Tile record in `type 3` and the tile payload in `type 11`.
 fn write_tile(
     records: &mut Vec<u8>,
     payloads: &mut Vec<u8>,
@@ -291,7 +292,7 @@ fn write_tile(
     Ok(())
 }
 
-/// Заголовок собираемого файла (Unified RCS: `chunk_version = 5`).
+/// Header of the file being built (Unified RCS: `chunk_version = 5`).
 fn build_header(
     bounds: &Bounds,
     center: [f64; 3],

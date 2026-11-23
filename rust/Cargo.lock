@@ -60,7 +60,7 @@ dependencies = [
 
 [[package]]
 name = "cloud-las"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "las",
  "rcs-cloud",
@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "cloud-pts"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rcs-cloud",
 ]
@@ -216,14 +216,14 @@ dependencies = [
 
 [[package]]
 name = "rcs-cloud"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rcs-format",
 ]
 
 [[package]]
 name = "rcs-conv"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "cloud-las",
  "cloud-pts",
@@ -232,11 +232,11 @@ dependencies = [
 
 [[package]]
 name = "rcs-format"
-version = "0.1.0"
+version = "1.0.0"
 
 [[package]]
 name = "rcsconv"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rcs-conv",
  "rcs-format",
@@ -244,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "rcsconv-gui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "rcs-conv",
  "windows-sys",

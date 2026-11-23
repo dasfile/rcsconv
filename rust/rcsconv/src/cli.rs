@@ -1,15 +1,15 @@
-//! CLI-слой: разбор аргументов и печать отчётов.
+//! CLI layer: argument parsing and report printing.
 //!
-//! Правило интерфейса повторяет Python-эталон (`tools/rcs_cli.py`, README):
-//! первый аргумент — вход (файл, каталог или маска), имя выхода подставляется
-//! само (`<имя>.rcs`), существующий файл не перезаписывается без `-f`.
+//! The interface rules mirror the Python reference (`tools/rcs_cli.py`, README):
+//! the first argument is the input (file, directory or mask), the output name is
+//! derived (`<name>.rcs`), an existing file is not overwritten without `-f`.
 //!
-//! Логика (разбор ключей, обход входов, конвертация, атомарная запись) живёт
-//! в крейте `rcs-conv` — её же использует GUI (`rcsconv-gui`).
+//! The logic (flag parsing, input walking, conversion, atomic write) lives in the
+//! `rcs-conv` crate — the GUI (`rcsconv-gui`) uses the same one.
 
 use rcs_conv::{convert_one, expand_sources, has_suffix, NoProgress, Options, Status};
 
-/// Пройти по входам и собрать `.rcs`; вернуть код выхода.
+/// Walk the inputs and build `.rcs` files; return the exit code.
 pub fn run(command: &str, args: &[String]) -> i32 {
     let las = command == "las2rcs";
     let options = match Options::parse(args, las) {
@@ -33,12 +33,12 @@ pub fn run(command: &str, args: &[String]) -> i32 {
 
     let sources = expand_sources(&options.sources, Options::suffixes(las), options.recursive);
     if sources.is_empty() {
-        eprintln!("rcsconv {command}: входные файлы не найдены");
+        eprintln!("rcsconv {command}: no input files found");
         return 2;
     }
     if let Some(wrong) = sources.iter().find(|path| has_suffix(path, ".rcs")) {
         eprintln!(
-            "rcsconv {command}: {} — это .rcs, а конвертер читает {}",
+            "rcsconv {command}: {} is a .rcs file, but this converter reads {}",
             wrong.display(),
             if las { ".las/.laz" } else { ".pts" }
         );
@@ -66,7 +66,7 @@ pub fn run(command: &str, args: &[String]) -> i32 {
         }
     }
     if sources.len() > 1 {
-        println!("итого: записано {written}, пропущено {skipped}, ошибок {failed}");
+        println!("total: {written} written, {skipped} skipped, {failed} failed");
     }
     if failed == 0 {
         0

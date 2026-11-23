@@ -1,52 +1,52 @@
-//! Блок `type 3` — записи узлов октодерева по 368 байт.
+//! Block `type 3` — octree tile records of 368 bytes.
 //!
-//! ПОДТВЕРЖДЕНО (`docs/RCS-FORMAT.md` §4.1): `u64 count` + `count × 368`;
-//! куб узла (0…48), реальный bbox точек (48…96), `count` @96+4, `payload_size`
-//! @96+8, сумма `payload_size` равна размеру блока `type 11`.
-//! ГИПОТЕЗА: порядок узлов совпадает с порядком payload'ов; массивы после @128
-//! не расшифрованы (переносятся как есть).
+//! CONFIRMED (`docs/RCS-FORMAT.md` 4.1): `u64 count` + `count × 368`;
+//! tile cube (0..48), real point bbox (48..96), `count` @96+4, `payload_size`
+//! @96+8, the sum of `payload_size` equals the size of the `type 11` block.
+//! HYPOTHESIS: tile order matches payload order; the arrays after @128 are not
+//! decoded (they are carried over as is).
 
 use crate::bytes;
 use crate::container::Container;
 use crate::error::{Error, Result};
 
-/// Размер записи узла.
+/// Tile record size.
 pub const TILE_RECORD_SIZE: usize = 368;
-/// Смещение `count` в записи узла.
+/// Offset of `count` in a tile record.
 const RECORD_COUNT_OFFSET: usize = 96 + 4;
-/// Смещение `payload_size` в записи узла.
+/// Offset of `payload_size` in a tile record.
 const RECORD_PAYLOAD_SIZE_OFFSET: usize = 96 + 8;
-/// Число `u32` в «шапке» записи (после bbox).
+/// Number of `u32` in the record "head" (after the bbox).
 const RECORD_HEADER_WORDS: usize = 8;
-/// Число `u32` в хвосте записи.
+/// Number of `u32` in the record tail.
 const RECORD_TAIL_WORDS: usize = 60;
 
-/// Запись узла октодерева.
+/// Octree tile record.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tile {
-    /// Номер записи в блоке `type 3`.
+    /// Record index in the `type 3` block.
     pub index: usize,
-    /// Куб узла — минимум.
+    /// Tile cube — minimum.
     pub cube_min: [f64; 3],
-    /// Куб узла — максимум.
+    /// Tile cube — maximum.
     pub cube_max: [f64; 3],
-    /// Реальный bbox точек узла — минимум.
+    /// Real bbox of the tile points — minimum.
     pub points_min: [f64; 3],
-    /// Реальный bbox точек узла — максимум.
+    /// Real bbox of the tile points — maximum.
     pub points_max: [f64; 3],
-    /// Число точек узла.
+    /// Number of points in the tile.
     pub count: u32,
-    /// Размер данных узла в блоке `type 11`.
+    /// Size of the tile data in the `type 11` block.
     pub payload_size: u32,
-    /// Смещение payload'а внутри блока `type 11` (накопленная сумма размеров).
+    /// Payload offset inside the `type 11` block (accumulated sizes).
     pub payload_offset: usize,
-    /// Восемь `u32` шапки записи (`header_u32[1]` = `count`, `[2]` = `payload_size`).
+    /// Eight `u32` of the record head (`header_u32[1]` = `count`, `[2]` = `payload_size`).
     pub header_u32: [u32; 8],
-    /// Шестьдесят `u32` хвоста записи (не расшифрованы).
+    /// Sixty `u32` of the record tail (not decoded).
     pub tail_u32: [u32; 60],
 }
 
-/// Разобрать блок `type 3`. Пустой вектор, если блока нет.
+/// Parse the `type 3` block. An empty vector when the block is missing.
 pub fn iter_tiles(container: &Container<'_>) -> Result<Vec<Tile>> {
     let Some(block) = container.block_of_type(3) else {
         return Ok(Vec::new());
@@ -94,8 +94,8 @@ pub fn iter_tiles(container: &Container<'_>) -> Result<Vec<Tile>> {
     Ok(tiles)
 }
 
-/// Срез данных узла в блоке `type 11` (порядок узлов — гипотеза, подтверждённая
-/// совпадением суммы размеров с размером блока).
+/// A slice of tile data in the `type 11` block (tile order is a hypothesis
+/// confirmed by the payload size sum matching the block size).
 pub fn tile_payload<'a>(container: &'a Container<'a>, tile: &Tile) -> Result<&'a [u8]> {
     let block = container
         .block_of_type(11)
@@ -112,7 +112,7 @@ pub fn tile_payload<'a>(container: &'a Container<'a>, tile: &Tile) -> Result<&'a
     Ok(&container.raw()[start..end])
 }
 
-/// Собрать блок `type 3` из записей узлов.
+/// Build the `type 3` block from tile records.
 pub fn tile_block_bytes(tiles: &[Tile]) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(8 + TILE_RECORD_SIZE * tiles.len());
     out.extend_from_slice(&(tiles.len() as u64).to_le_bytes());

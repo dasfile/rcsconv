@@ -1,67 +1,67 @@
-//! Тела точек (`type 11`): 16 байт на точку.
+//! Point bodies (`type 11`): 16 bytes per point.
 //!
-//! ПОДТВЕРЖДЕНО на `probe6`, `test1`, `test2` и узле 37 `level_7`
-//! (`docs/RCS-FORMAT.md` §4.2, §5):
+//! CONFIRMED on `probe6`, `test1`, `test2` and tile 37 of `level_7`
+//! (`docs/RCS-FORMAT.md` 4.2, 5):
 //!
 //! ```text
-//! [0:2]  u16  x: (x − cube_min.x) в 1 мм
-//! [2:4]  u16  y: (y − cube_min.y) в 1/4 мм   (масштаб 4)
-//! [4:6]  u16  z: (z − cube_min.z) в 1/16 мм  (масштаб 16)
-//! [6:8]  u16  не расшифровано (в эталонах 0)
-//! [8]    u8   интенсивность (0..255)
-//! [9:12] u8×3 цвет в порядке B, G, R
-//! [12:16]     не расшифровано (в эталонах 0)
+//! [0:2]  u16  x: (x - cube_min.x) in 1 mm
+//! [2:4]  u16  y: (y - cube_min.y) in 1/4 mm   (scale 4)
+//! [4:6]  u16  z: (z - cube_min.z) in 1/16 mm  (scale 16)
+//! [6:8]  u16  not decoded (0 in the reference files)
+//! [8]    u8   intensity (0..255)
+//! [9:12] u8×3 colour in B, G, R order
+//! [12:16]     not decoded (0 in the reference files)
 //! ```
 //!
-//! Узлы с несколькими точками: payload = заголовок + `count` записей по 16 или
-//! 20 байт; раскладка подбирается по совпадению bbox с записью узла.
+//! Tiles with several points: payload = header + `count` records of 16 or 20
+//! bytes; the layout is chosen by matching the bbox against the tile record.
 //!
-//! Координаты [`Point`] — **локальные** (от `cube_min` узла). Мировые координаты
-//! получаются прибавлением `header.center` — [`Point::world`]; именно так работает
-//! `tools/rcs2pts.py` (флаг `--local` печатает локальные).
+//! [`Point`] coordinates are **local** (relative to the tile `cube_min`). World
+//! coordinates are obtained by adding `header.center` — [`Point::world`]; that is
+//! what `tools/rcs2pts.py` does (the `--local` flag prints local coordinates).
 
 use crate::container::Container;
 use crate::error::{Error, Result};
 use crate::tile::{tile_payload, Tile};
 
-/// Сколько единиц поля приходится на 1 мм по осям x, y, z.
+/// How many field units make 1 mm on the x, y, z axes.
 pub const AXIS_SCALE: [f64; 3] = [1.0, 4.0, 16.0];
-/// Размер тела точки.
+/// Point body size.
 pub const BODY_SIZE: usize = 16;
-/// Альтернативный размер записи (4 нерасшифрованных байта в начале).
+/// Alternative record size (4 undecoded bytes at the start).
 pub const WIDE_STRIDE: usize = 20;
-/// Допуск сверки bbox при подборе раскладки, метры.
+/// bbox matching tolerance when choosing the layout, metres.
 pub const BBOX_TOLERANCE: f64 = 2e-3;
 
-/// Точка облака: координаты в метрах, цвет RGB, интенсивность.
+/// Cloud point: coordinates in metres, RGB colour, intensity.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
-    /// X, метры.
+    /// X, metres.
     pub x: f64,
-    /// Y, метры.
+    /// Y, metres.
     pub y: f64,
-    /// Z, метры.
+    /// Z, metres.
     pub z: f64,
-    /// Красный канал.
+    /// Red channel.
     pub r: u8,
-    /// Зелёный канал.
+    /// Green channel.
     pub g: u8,
-    /// Синий канал.
+    /// Blue channel.
     pub b: u8,
-    /// Интенсивность (`[8]`).
+    /// Intensity (`[8]`).
     pub intensity: u8,
-    /// Нерасшифрованные байты `[6], [7], [12..16]` — переносятся как есть.
+    /// Undecoded bytes `[6], [7], [12..16]` — carried over as is.
     pub extra: [u8; 6],
 }
 
 impl Point {
-    /// Координаты точкой (локальные, без центра).
+    /// Coordinates as an array (local, without the centre).
     pub fn xyz(&self) -> [f64; 3] {
         [self.x, self.y, self.z]
     }
 
-    /// Мировые координаты: локальные + `header.center` (как `rcs2pts.py`;
-    /// флаг `--local` в Python-версии эти координаты и печатает).
+    /// World coordinates: local + `header.center` (as in `rcs2pts.py`; the
+    /// `--local` flag in the Python version prints these coordinates).
     pub fn world(&self, center: [f64; 3]) -> [f64; 3] {
         [
             self.x + center[0],
@@ -71,7 +71,7 @@ impl Point {
     }
 }
 
-/// Декодировать 16-байтовое тело точки.
+/// Decode a 16-byte point body.
 pub fn decode_body(body: &[u8], cube_min: [f64; 3]) -> Result<Point> {
     if body.len() != BODY_SIZE {
         return Err(Error::BodySize(body.len()));
@@ -94,12 +94,12 @@ pub fn decode_body(body: &[u8], cube_min: [f64; 3]) -> Result<Point> {
     })
 }
 
-/// Собрать 16-байтовое тело точки (обратная операция к [`decode_body`]).
+/// Compose a 16-byte point body (the inverse of [`decode_body`]).
 ///
-/// Квантование повторяет `tools/rcs_build.py`: дельта до `cube_min` сначала
-/// округляется до 1 мм, затем умножается на масштаб оси и округляется к целому
-/// (оба округления — как в Python, половина к чётному, см. [`crate::num`]).
-/// Если значение не помещается в `u16` — ошибка [`Error::PointOutOfCube`].
+/// Quantisation repeats `tools/rcs_build.py`: the delta to `cube_min` is first
+/// rounded to 1 mm, then multiplied by the axis scale and rounded to an integer
+/// (both roundings are Python-style half-to-even, see [`crate::num`]).
+/// A value that does not fit into `u16` gives [`Error::PointOutOfCube`].
 pub fn encode_body(point: &Point, cube_min: [f64; 3]) -> Result<[u8; BODY_SIZE]> {
     let mut out = [0u8; BODY_SIZE];
     for axis in 0..3 {
@@ -125,7 +125,7 @@ pub fn encode_body(point: &Point, cube_min: [f64; 3]) -> Result<[u8; BODY_SIZE]>
     Ok(out)
 }
 
-/// Декодировать все точки узла, подбирая размер записи по bbox из записи узла.
+/// Decode all points of a tile, choosing the record stride by the tile bbox.
 pub fn decode_tile(container: &Container<'_>, tile: &Tile) -> Result<Vec<Point>> {
     let payload = tile_payload(container, tile)?;
     if tile.count == 0 {
@@ -155,7 +155,7 @@ pub fn decode_tile(container: &Container<'_>, tile: &Tile) -> Result<Vec<Point>>
     })
 }
 
-/// Декодировать все узлы контейнера.
+/// Decode every tile of the container.
 pub fn decode_all(container: &Container<'_>) -> Result<Vec<Point>> {
     let mut points = Vec::new();
     for tile in crate::tile::iter_tiles(container)? {
@@ -164,7 +164,7 @@ pub fn decode_all(container: &Container<'_>) -> Result<Vec<Point>> {
     Ok(points)
 }
 
-/// Совпадает ли bbox точек с bbox из записи узла (допуск `BBOX_TOLERANCE`).
+/// Does the point bbox match the tile record bbox (tolerance `BBOX_TOLERANCE`)?
 fn bbox_matches(tile: &Tile, points: &[Point]) -> bool {
     if points.is_empty() {
         return false;

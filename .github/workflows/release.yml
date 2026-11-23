@@ -1,0 +1,63 @@
+name: release
+
+# Builds the Windows GNU binaries and attaches a zip to the GitHub Release.
+# MSVC is not used (see .clinerules 10): the target triple is x86_64-pc-windows-gnu.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust (GNU target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: Install MinGW linker
+        run: |
+          choco install mingw --no-progress -y
+          echo "C:\ProgramData\chocolatey\bin" >> $env:GITHUB_PATH
+
+      - name: Run tests
+        run: cargo test --workspace --manifest-path rust/Cargo.toml
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-gnu --manifest-path rust/Cargo.toml
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path rust/rcsconv/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $dist = "dist/rcsconv-$version-x86_64-pc-windows-gnu"
+          New-Item -ItemType Directory -Force $dist | Out-Null
+          Copy-Item "rust/target/x86_64-pc-windows-gnu/release/rcsconv.exe" $dist
+          Copy-Item "rust/target/x86_64-pc-windows-gnu/release/rcsconv-gui.exe" $dist
+          Copy-Item LICENSE, README.md $dist
+          Get-FileHash "$dist/*.exe" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content "$dist/SHA256SUMS.txt"
+          Compress-Archive -Path "$dist/*" -DestinationPath "$dist.zip"
+          "artifact=$dist.zip" >> $env:GITHUB_OUTPUT
+        id: package
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rcsconv-windows-gnu
+          path: dist/*.zip
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

@@ -1,779 +1,634 @@
-# Спецификация формата RCS (контейнер ADOCT)
+# RCS format specification (ADOCT container)
 
-Реверс-инжиниринг формата Autodesk ReCap `.rcs`. Эталонная версия — **ReCap 2020
-(6.0.0.110)**, экспорт Unified RCS (диалект v5). Little-endian, выравнивания нет.
+Reverse engineering of the Autodesk ReCap `.rcs` format. The reference version is
+**ReCap 2020 (6.0.0.110)**, Unified RCS export (dialect v5). Little-endian, no
+alignment.
 
-Документ описывает **только то, что проверено**; недоказанное помечено явно.
+This document describes **only what has been verified**; unproven statements are
+marked explicitly.
 
-## 0. Статусы и способы проверки
+## 0. Statuses and how things are verified
 
-| Статус | Смысл |
+| Status | Meaning |
 |---|---|
-| **ПОДТВЕРЖДЕНО** | есть тест или скрипт, который это доказывает; ссылка на проверку указана |
-| **ГИПОТЕЗА** | догадка; указано, чем проверять |
-| **ОПРОВЕРГНУТО** | проверяли и не подтвердилось; указано, что именно это опровергло |
+| **CONFIRMED** | a test or script proves it; the verification is referenced |
+| **HYPOTHESIS** | a guess; how to check it is stated |
+| **DISPROVED** | it was checked and did not hold; what disproved it is stated |
 
-Чем проверялось:
+Verification tools:
 
-- `tools/rcs_inspect.py` — разбор контейнера + инварианты;
-- `tools/tests/test_container.py` — 85 тестов (`python -m unittest discover -s tools/tests`);
-- `tools/rcp_info.py` — чтение проекта `.rcp` (ZIP + XML): версия, сканы, настройки импорта;
-- `tools/las2rcs.py` — `.las/.laz` → `.rcs` (через `las_read` + `rcs_build`);
-- `tools/rcs_write.py` — обратная сборка: `read → write` побайтово идентичен на 13 файлах;
-- `tools/pts2rcs.py` — генерация `.rcs` из `.pts`; `probe6` воспроизводится до байта
-  (кроме GUID и двух байт интенсивности);
-- `tools/analyze_type1.py` — разбор блока метаданных (`type 1`): слова заголовка,
-  `K`, сверка с октодеревом;
-- `tools/validate_pts.py` — приёмочная сверка пары (`.pts`, `.rcs`): count, bbox,
-  `type 1`, предел узла; пакетный режим `-g каталог_эталонов`; без `.rcs` —
-  санитарный отчёт по одному `.pts`;
-- `tools/pts_subset.py` — равномерная подвыборка `.pts` (для малых эталонов);
-- `tools/corpus_status.py` — чек-лист корпуса: что снято, что осталось, `count`/узлы;
-- `tools/las2pts.py` — импорт LAS/LAZ → `.pts` (через `laspy`, см. `.clinerules` п.10);
-- приёмка в **Revit 2023** (23.0.10.18; конечный потребитель): облако открывается,
-  габариты верны; ReCap 2020 напрямую файлы не открывали;
-- ReCap 2020 — источник эталонов `golden/*.rcs`, `golden/reference/*_orig.rcs`
-  и `golden/lazimport/*.rcs`.
+- `tools/rcs_inspect.py` — container parsing + invariants;
+- `tools/tests/test_container.py` — 85 tests (`python -m unittest discover -s tools/tests`);
+- `tools/rcp_info.py` — reading an `.rcp` project (ZIP + XML): version, scans, import settings;
+- `tools/las2rcs.py` — `.las/.laz` -> `.rcs` (via `las_read` + `rcs_build`);
+- `tools/rcs_write.py` — reverse build: `read -> write` is byte-identical on 13 files;
+- `tools/pts2rcs.py` — generating `.rcs` from `.pts`; `probe6` is reproduced byte for
+  byte (except the GUID and two intensity bytes);
+- `tools/analyze_type1.py` — the metadata block (`type 1`): header words, `K`, check
+  against the octree;
+- `tools/validate_pts.py` — acceptance check of a (`.pts`, `.rcs`) pair: count, bbox,
+  `type 1`, tile limit; batch mode `-g reference_dir`; without `.rcs` — a sanity
+  report over one `.pts`;
+- `tools/pts_subset.py` — uniform `.pts` subsampling (for small reference files);
+- `tools/corpus_status.py` — corpus checklist: what was captured, what is left, `count`/tiles;
+- `tools/las2pts.py` — LAS/LAZ -> `.pts` import (via `laspy`, see `.clinerules` 10);
+- acceptance in **Revit 2023** (23.0.10.18; the end consumer): the cloud opens and
+  the dimensions are correct; ReCap 2020 was not used to open files directly;
+- ReCap 2020 is the source of the reference files `golden/*.rcs`,
+  `golden/reference/*_orig.rcs` and `golden/lazimport/*.rcs`.
 
-Обозначения: `u8/u16/u32/u64` — беззнаковые целые, `f32/f64` — IEEE-754,
+Notation: `u8/u16/u32/u64` are unsigned integers, `f32/f64` are IEEE-754,
 `DOUBLE_MAX = 1.7976931348623157e308`, `UINT_MAX = 0xFFFFFFFF`.
 
 ---
 
-## 1. Карта файла
+## 1. File map
 
 ```
-0x0000 … 0x0109   заголовок ADOCT (см. §2)
-0x0109 … 0x0129   нули
-0x0129            u32 blockCount (число записей директории)
-0x012D            u32 = 2
-0x0131 … 0x0135   нули
-0x0135            директория: blockCount × (offset u64, size u64, type u64)
-0x0141 … 0x1812D  нули: терминатор директории + резерв
-0x1812D … EOF     блоки подряд, в порядке директории
+0x0000 .. 0x0109   ADOCT header (see section 2)
+0x0109 .. 0x0129   zeros
+0x0129             u32 blockCount (number of directory records)
+0x012D             u32 = 2
+0x0131 .. 0x0135   zeros
+0x0135             directory: blockCount x (offset u64, size u64, type u64)
+0x0141 .. 0x1812D  zeros: directory terminator + reserve
+0x1812D .. EOF     blocks back to back, in directory order
 ```
 
-ПОДТВЕРЖДЕНО: директория начинается на нечётном смещении `0x135` (выравнивания нет);
-первый блок всегда на `0x1812D` (98 605) независимо от числа блоков; резерв между
-директорией и первым блоком заполнен нулями; блоки стыкуются и заканчиваются ровно
-на EOF — проверено на всех эталонах (`test_blocks_cover_file_exactly`).
+CONFIRMED: the directory starts at the odd offset `0x135` (no alignment); the
+first block is always at `0x1812D` (98,605) regardless of the block count; the
+reserve between the directory and the first block is zero-filled; blocks are
+contiguous and end exactly at EOF — verified on every reference file
+(`test_blocks_cover_file_exactly`).
 
 ---
 
-## 2. Заголовок (0x0000 … 0x0109)
+## 2. Header (0x0000 .. 0x0109)
 
-| Смещение | Тип | Значение | Статус |
+| Offset | Type | Value | Status |
 |---|---|---|---|
-| `0x00` | 8 байт | `41 44 4F 43 54 00 00 00` = `ADOCT\0\0\0` | ПОДТВЕРЖДЕНО |
-| `0x04` | u32 | `84` (байт `T` внутри сигнатуры) | ПОДТВЕРЖДЕНО |
-| `0x08` | u32 | `3` — **не** число точек (при 324 680 точках тоже 3) | ПОДТВЕРЖДЕНО |
-| `0x0C` | u32 | `2` | ПОДТВЕРЖДЕНО |
-| `0x10` | 3×f64 | центр bbox `.pts` (точный, без округления) | ПОДТВЕРЖДЕНО |
-| `0x28` | 3×f64 | `0, 0, 0` | ПОДТВЕРЖДЕНО |
-| `0x40` | 3×f64 | `1, 1, 1` (масштаб) | ПОДТВЕРЖДЕНО |
-| `0x58` | 3×f64 | повтор центра | ПОДТВЕРЖДЕНО |
-| `0x70` | 3×f64 | `−R, −R, −R` — корневой куб в **локальной** системе | ПОДТВЕРЖДЕНО |
-| `0x88` | 3×f64 | `+R, +R, +R` | ПОДТВЕРЖДЕНО |
-| `0xA0` | 3×f64 | `−(hx, hy, hz)` — полуразмеры bbox, округлены до 1 мм | ПОДТВЕРЖДЕНО |
-| `0xB8` | 3×f64 | `+(hx, hy, hz)` | ПОДТВЕРЖДЕНО |
-| `0xD0` | u32 | `chunk_id` | ПОДТВЕРЖДЕНО; значения — в таблице ниже |
-| `0xD4` | u32 | `chunk_version` | ПОДТВЕРЖДЕНО; значения — в таблице ниже |
-| `0xD8` | u64 | `count` — число точек скана | ПОДТВЕРЖДЕНО с оговоркой: у импорта ReCap больше суммы по узлам (§7) |
-| `0xE0` | 3 байта | `01 01 00` | ПОДТВЕРЖДЕНО |
-| `0xE3` | 38 байт | GUID строкой `{8_4_4_4_12}`, нижний регистр, подчёркивания | ПОДТВЕРЖДЕНО |
-| `0x109…0x129` | — | нули | ПОДТВЕРЖДЕНО |
-| `0x129` | u32 | `blockCount` = число записей директории | ПОДТВЕРЖДЕНО |
-| `0x12D` | u32 | `2` | ПОДТВЕРЖДЕНО |
-| `0x131…0x135` | — | нули | ПОДТВЕРЖДЕНО |
+| `0x00` | 8 bytes | `41 44 4F 43 54 00 00 00` = `ADOCT\0\0\0` | CONFIRMED |
+| `0x04` | u32 | `84` (the `T` byte inside the signature) | CONFIRMED |
+| `0x08` | u32 | `3` — **not** the point count (also 3 with 324,680 points) | CONFIRMED |
+| `0x0C` | u32 | `2` | CONFIRMED |
+| `0x10` | 3xf64 | bbox centre of the `.pts` (exact, no rounding) | CONFIRMED |
+| `0x28` | 3xf64 | `0, 0, 0` | CONFIRMED |
+| `0x40` | 3xf64 | `1, 1, 1` (scale) | CONFIRMED |
+| `0x58` | 3xf64 | repeated centre | CONFIRMED |
+| `0x70` | 3xf64 | `-R, -R, -R` — the root cube in the **local** frame | CONFIRMED |
+| `0x88` | 3xf64 | `+R, +R, +R` | CONFIRMED |
+| `0xA0` | 3xf64 | `-(hx, hy, hz)` — bbox half-sizes, rounded to 1 mm | CONFIRMED |
+| `0xB8` | 3xf64 | `+(hx, hy, hz)` | CONFIRMED |
+| `0xD0` | u32 | `chunk_id` | CONFIRMED; values in the table below |
+| `0xD4` | u32 | `chunk_version` | CONFIRMED; values in the table below |
+| `0xD8` | u64 | `count` — number of scan points | CONFIRMED with a caveat: for a ReCap import it exceeds the sum over tiles (section 7) |
+| `0xE0` | 3 bytes | `01 01 00` | CONFIRMED |
+| `0xE3` | 38 bytes | GUID string `{8_4_4_4_12}`, lower case, underscores | CONFIRMED |
+| `0x109..0x129` | — | zeros | CONFIRMED |
+| `0x129` | u32 | `blockCount` = number of directory records | CONFIRMED |
+| `0x12D` | u32 | `2` | CONFIRMED |
+| `0x131..0x135` | — | zeros | CONFIRMED |
 
-**`chunk_id` / `chunk_version` (@0xD0 / @0xD4).** Пара зависит от **пути импорта**,
-а не от «raw/export» напрямую (13 эталонов корпуса + файлы чужих импортов):
-| Откуда файл | `chunk_id` | `chunk_version` | Блоки |
+**`chunk_id` / `chunk_version` (@0xD0 / @0xD4).** The pair depends on the **import
+path**, not on "raw/export" directly (13 corpus references + third-party imports):
+
+| Where the file came from | `chunk_id` | `chunk_version` | Blocks |
 |---|---|---|---|
-| raw из `.pts` (`<имя> Support/`) | 131 | 2 | `[3,1,11,5,0]` |
-| raw из `.laz` (`golden/lazimport/<имя> Support/`) | **11** | **1** | `[3,1,11,5,0]` |
-| raw из «нетекстового» импорта (e57; `golden/reference/raw_v134.rcs`) | 131 | **134** | `[3,1,11,0]` |
-| экспорт Unified RCS | 131 | 5 | `[3,1,11,0]` |
+| raw from `.pts` (`<name> Support/`) | 131 | 2 | `[3,1,11,5,0]` |
+| raw from `.laz` (`golden/lazimport/<name> Support/`) | **11** | **1** | `[3,1,11,5,0]` |
+| raw from a "non-text" import (e57; `golden/reference/raw_v134.rcs`) | 131 | **134** | `[3,1,11,0]` |
+| Unified RCS export | 131 | 5 | `[3,1,11,0]` |
 
-ГИПОТЕЗА: поле — версия схемы писателя конкретного импортёра. Для чтения и записи
-мы опираемся на набор блоков и общие поля, поэтому **неизвестная версия — не
-ошибка**: `tools/rcs_checks.py` сообщает её как наблюдение, а `dialect()` при
-неизвестной версии определяет диалект по набору блоков (`tools/rcs_blocks.py`,
-`KNOWN_CHUNK_VERSIONS`, тест `ChunkVersionTests`).
+HYPOTHESIS: the field is the writer schema version of a particular importer. For
+reading and writing we rely on the block set and the common fields, so an
+**unknown version is not an error**: `tools/rcs_checks.py` reports it as an
+observation, and `dialect()` falls back to the block set when the version is
+unknown (`tools/rcs_blocks.py`, `KNOWN_CHUNK_VERSIONS`, test `ChunkVersionTests`).
 
-**Система координат.** `center` (@0x10) — смещение (проектный origin), а не центр
-корневого куба: у `probe6` `R = 2.25` при полуразмерах bbox `(0.667, 1.5, 1.056)`,
-поэтому инвариант — `max|полуразмер| ≤ R`, а не `|center| + |полуразмер| ≤ R`.
+**Coordinate system.** `center` (@0x10) is an offset (the project origin), not the
+centre of the root cube: for `probe6` `R = 2.25` with bbox half-sizes
+`(0.667, 1.5, 1.056)`, so the invariant is `max|half_size| <= R`, not
+`|center| + |half_size| <= R`.
 
 ---
 
-## 3. Директория блоков
+## 3. Block directory
 
-Записи по 24 байта `(offset u64, size u64, type u64)`; конец — полностью нулевая
-запись. Резерв между директорией и `0x1812D` заполнен нулями.
+24-byte records `(offset u64, size u64, type u64)`; the end is an all-zero record.
+The reserve between the directory and `0x1812D` is zero-filled.
 
-| Файл | type 3 | type 1 | type 11 | type 0 | type 5 |
+| File | type 3 | type 1 | type 11 | type 0 | type 5 |
 |---|---|---|---|---|---|
-| `golden/probe6.rcs` (экспорт) | 1 112 | 416 | 60 | 134 | — |
-| `golden/level_7.rcs` (экспорт) | 15 832 | 4 808 | 7 162 484 | 134 | — |
-| `golden/probe6 Support/probe6.rcs` (raw) | 1 112 | 416 | 60 | JPEG-превью | TLV-свойства |
+| `golden/probe6.rcs` (export) | 1,112 | 416 | 60 | 134 | — |
+| `golden/level_7.rcs` (export) | 15,832 | 4,808 | 7,162,484 | 134 | — |
+| `golden/probe6 Support/probe6.rcs` (raw) | 1,112 | 416 | 60 | JPEG preview | TLV properties |
 
-Состав блоков: экспорт — `[3, 1, 11, 0]`, raw — `[3, 1, 11, 5, 0]`.
-ПОДТВЕРЖДЕНО: порядок блоков в файле совпадает с порядком записей директории.
+Block layout: export — `[3, 1, 11, 0]`, raw — `[3, 1, 11, 5, 0]`.
+CONFIRMED: the block order in the file matches the directory record order.
 
 ---
 
-## 4. Блоки
+## 4. Blocks
 
-### 4.1 type 3 — дерево узлов
+### 4.1 type 3 — tile tree
 
-`u64 nodeCount` + ровно `nodeCount × 368` байт. ПОДТВЕРЖДЕНО делением:
-probe6 `(1112−8)/3 = 368`, `golden/level_7` `(15 832−8)/43 = 368`,
-`level_7_orig` `(116 296−8)/316 = 368`.
+`u64 nodeCount` + exactly `nodeCount x 368` bytes. CONFIRMED by division:
+probe6 `(1112-8)/3 = 368`, `golden/level_7` `(15,832-8)/43 = 368`,
+`level_7_orig` `(116,296-8)/316 = 368`.
 
-Раскладка 368-байтовой записи:
+Layout of the 368-byte record:
 
-| Смещение | Тип | Смысл | Статус |
+| Offset | Type | Meaning | Status |
 |---|---|---|---|
-| `0…48` | 6×f64 | куб узла: min xyz, max xyz (ребро 2.25 м в эталонах) | ПОДТВЕРЖДЕНО |
-| `48…96` | 6×f64 | реальный bbox точек узла (min, max), **округлён до 1 мм** | ПОДТВЕРЖДЕНО: на одноточечных узлах probe6 обе тройки = координате точки |
-| `96` | u32 | `1…12` (probe6 → 1, level_7 → 8…12) | НЕ РАСШИФРОВАНО |
-| `100` | u32 | число точек узла | ПОДТВЕРЖДЕНО (сумма = 315 264, см. §7 о расхождении с заголовком) |
-| `104` | u32 | размер payload'а узла в блоке type 11 | ПОДТВЕРЖДЕНО: сумма по узлам = размер блока type 11 точно |
-| `108` | u32 | `0` в наших эталонах | НЕ РАСШИФРОВАНО |
-| `112`, `116` | u32 | `1…50` | НЕ РАСШИФРОВАНО |
-| `120…128` | 2×u32 | массив | НЕ РАСШИФРОВАНО |
-| `128…368` | 60×u32 | массив; у одноточечных узлов `tail[27] = 1`, остальное нули | ГИПОТЕЗА: гистограмма/ячейки; для одноточечного узла подтверждено |
+| `0..48` | 6xf64 | tile cube: min xyz, max xyz (edge 2.25 m in the references) | CONFIRMED |
+| `48..96` | 6xf64 | real bbox of the tile points (min, max), **rounded to 1 mm** | CONFIRMED: on single-point probe6 tiles both triples equal the point coordinate |
+| `96` | u32 | `1..12` (probe6 -> 1, level_7 -> 8..12) | NOT DECODED |
+| `100` | u32 | number of tile points | CONFIRMED (sum = 315,264, see section 7 about the header difference) |
+| `104` | u32 | tile payload size in the `type 11` block | CONFIRMED: the sum over tiles equals the `type 11` block size exactly |
+| `108` | u32 | `0` in our references | NOT DECODED |
+| `112`, `116` | u32 | `1..50` | NOT DECODED |
+| `120..128` | 2xu32 | array | NOT DECODED |
+| `128..368` | 60xu32 | array; on single-point tiles `tail[27] = 1`, the rest zeros | HYPOTHESIS: histogram/cells; confirmed for a single-point tile |
 
-ПОДТВЕРЖДЕНО: кубы узлов не перекрываются (`test_tile_cubes_are_disjoint`),
-`min ≤ max`, bbox узла лежит внутри куба, объединение кубов покрывает bbox сцены.
+CONFIRMED: tile cubes do not overlap (`test_tile_cubes_are_disjoint`),
+`min <= max`, the tile bbox lies inside the cube, and the union of cubes covers the
+scene bbox.
 
-### 4.2 type 11 — тела точек
+### 4.2 type 11 — point bodies
 
-`payload узла = заголовок + count × 16 байт`, заголовок = `payload_size − 16·count`.
+`tile payload = header + count x 16 bytes`, header = `payload_size - 16*count`.
 
-**Тело точки (16 байт, LE), координаты — от `cube_min` узла:**
+**Point body (16 bytes, LE), coordinates relative to the tile `cube_min`:**
 
-| Смещение | Тип | Смысл | Статус |
+| Offset | Type | Meaning | Status |
 |---|---|---|---|
-| `0:2` | u16 | `(x − cube_min.x)` в **1 мм** | ПОДТВЕРЖДЕНО |
-| `2:4` | u16 | `(y − cube_min.y)` в **¼ мм** | ПОДТВЕРЖДЕНО |
-| `4:6` | u16 | `(z − cube_min.z)` в **1/16 мм** | ПОДТВЕРЖДЕНО |
-| `6:8` | u16 | `0` | НЕ РАСШИФРОВАНО |
-| `8` | u8 | канал «интенсивность» / раскраска | ПОДТВЕРЖДЕНО: проба `attr_intensity` (вход 0…255 → те же числа), но значение зависит от импортёра — см. ниже |
-| `9:12` | u8×3 | цвет в порядке **B, G, R** | ПОДТВЕРЖДЕНО: копируется дословно (100 % точек эталона из палитры источника) |
-| `12:16` | 4 байта | в пробах `0`; в корпусе `[12]` = 0…255, `[13]` = 0…4 | НЕ РАСШИФРОВАНО |
+| `0:2` | u16 | `(x - cube_min.x)` in **1 mm** | CONFIRMED |
+| `2:4` | u16 | `(y - cube_min.y)` in **1/4 mm** | CONFIRMED |
+| `4:6` | u16 | `(z - cube_min.z)` in **1/16 mm** | CONFIRMED |
+| `6:8` | u16 | `0` | NOT DECODED |
+| `8` | u8 | "intensity" / colouring channel | CONFIRMED: probe `attr_intensity` (input 0..255 -> the same numbers), but the value depends on the importer — see below |
+| `9:12` | 3xu8 | colour in **B, G, R** order | CONFIRMED: copied verbatim (100 % of reference points from the source palette) |
+| `12:16` | 4 bytes | `0` in the probes; in the corpus `[12]` = 0..255, `[13]` = 0..4 | NOT DECODED |
 
-ПОДТВЕРЖДЕНО на корпусе (13 экспортов, ~1 млн точек проверено декодером,
-раскладка 16 Б подтверждена совпадением bbox узла, ошибка 0.0000):
+CONFIRMED on the corpus (13 exports, about 1M points checked by the decoder, the
+16-byte layout confirmed by the tile bbox match, error 0.0000):
 
-| Вход | Байт `[8]` |
+| Input | Byte `[8]` |
 |---|---|
-| реальная интенсивность (проба `attr_intensity`, 0…255) | те же числа |
-| `.pts` с колонкой интенсивности, все нули (корпус) | **255 у всех** точек |
-| импорт из `.laz` (`HasIntensity=0`) | **линейный градиент по высоте** (corr с z = 1.000) |
-| `.pts` без колонки интенсивности (`probe6/test1/test2`) | мусор (0/241/255) |
+| real intensity (probe `attr_intensity`, 0..255) | the same numbers |
+| `.pts` with an intensity column, all zeros (corpus) | **255 for every** point |
+| import from `.laz` (`HasIntensity=0`) | **linear gradient along height** (corr with z = 1.000) |
+| `.pts` without an intensity column (`probe6/test1/test2`) | garbage (0/241/255) |
 
-То есть `[8]` — не «копия интенсивности», а канал, которым ReCap красит облако
-(это согласуется с `type 0` TLV `101/102` — границы атрибута раскраски). Наш
-писатель пишет туда значение из `.pts` (для корпуса — 0), и Revit это принимает:
-цвет идёт из `[9:12]`, высотная раскраска не нужна.
+So `[8]` is not a copy of intensity but the channel ReCap uses to colour the
+cloud (consistent with the `type 0` TLV `101/102`, the colouring attribute
+bounds). Our writer puts the `.pts` value there (0 for the corpus) and Revit
+accepts it: the colour comes from `[9:12]`, height colouring is not needed.
 
-ОПРОВЕРГНУТО: «`12:16` всегда нули» — верно только для трёхточечных проб;
-у корпусных облаков `[12]` принимает 0…255, `[13]` — 0…4 (смысл открыт).
+DISPROVED: "`12:16` is always zero" — true only for the three-point probes; in
+corpus clouds `[12]` takes 0..255 and `[13]` takes 0..4 (meaning open).
 
-Важно: дельта **сначала округляется до 1 мм**, и только потом умножается на масштаб оси
-(иначе `z = 1.194444` даёт `19 111` вместо `19 104`). ПОДТВЕРЖДЕНО на `probe6`.
+Important: the delta is **first rounded to 1 mm** and only then multiplied by the
+axis scale (otherwise `z = 1.194444` gives `19,111` instead of `19,104`).
+CONFIRMED on `probe6`.
 
-Без колонки интенсивности в `.pts` ReCap пишет в байт `[8]` произвольные значения
-(наблюдались `0x00`, `0xFF`, `0xF1`) — это не формат, а поведение импортёра.
+Without an intensity column in `.pts`, ReCap writes arbitrary values into byte
+`[8]` (observed `0x00`, `0xFF`, `0xF1`) — that is importer behaviour, not format.
 
-**Заголовок payload'а:** массив 4-байтовых записей `(u16 index, u8 length, u8 kind)`.
-ПОДТВЕРЖДЕНО на 97 узлах (43 `golden/level_7`, 43 raw `level_7 Support`,
-9 одноточечных, 2 `attr_intensity`):
+**Payload header:** an array of 4-byte records `(u16 index, u8 length, u8 kind)`.
+CONFIRMED on 97 tiles (43 `golden/level_7`, 43 raw `level_7 Support`, 9
+single-point, 2 `attr_intensity`):
 
-- длина заголовка всегда кратна 4;
-- `length` кратен 8, `kind ∈ 0…8`;
-- записей с `kind = 8` ровно `count`, их `index` — перестановка `0…count−1`
-  (проверено в т.ч. на N = 25 385);
-- минимальный заголовок — 4 байта `00 00 00 08` (одноточечные узлы);
-- `заголовок = 4·count + 4·M`, где `M` — число записей `kind ≠ 8`; `M/count ≈ 0.68`
-  на крупных узлах, но **не** функция только от `count` (`N=39 → M=40`,
-  `N=88 → M=70`, `N=90 → M=60`).
+- the header length is always a multiple of 4;
+- `length` is a multiple of 8, `kind` in 0..8;
+- records with `kind = 8` number exactly `count`, and their `index` is a
+  permutation of `0..count-1` (checked including N = 25,385);
+- the minimum header is 4 bytes `00 00 00 08` (single-point tiles);
+- `header = 4*count + 4*M`, where `M` is the number of `kind != 8` records;
+  `M/count` is about 0.68 on large tiles, but it is **not** a function of `count`
+  alone (`N=39 -> M=40`, `N=88 -> M=70`, `N=90 -> M=60`).
 
-ГИПОТЕЗА: записи `kind 0…7` — описатели пространственной иерархии внутри узла.
-Опровергнуто: связь `M` с `tail_u32`, «`length` = байты тел», «непрерывные пробеги
-тел», «`index` = номер тела точки».
+HYPOTHESIS: `kind 0..7` records are spatial hierarchy descriptors inside a tile.
+Disproved: a relation between `M` and `tail_u32`, "`length` = body bytes",
+"contiguous body runs", "`index` = point body number".
 
-ПОДТВЕРЖДЕНО (Revit 2020): заголовок можно писать **только записями `kind = 8`**
-(`count` записей `(index, 0, 8)`) — так собраны файлы, принятые Revit на 324 680
-и 2 580 040 точках. Значит смысл `kind 0…7` для писателя не обязателен.
+CONFIRMED (Revit 2020): the header may be written with **`kind = 8` records only**
+(`count` records `(index, 0, 8)`) — this is how the files accepted by Revit at
+324,680 and 2,580,040 points were built. So the meaning of `kind 0..7` is not
+required by the writer.
 
-ПОДТВЕРЖДЕНО (2026-10-30, экспорты ReCap `attic_south_ost` и `attic_south_west`):
-при **`count > 65 536`** записей `kind = 8` по-прежнему ровно `count`, но **`index`
-повторяются** — уникальных значений ровно 65 536 (0…65535) на 66 745 и на 192 402
-записи (повтор 2.9 раза). Значит `index` — не идентификатор точки, а 16-битный слот,
-который ReCap переиспользует. Наш писатель пишет уникальные `index` и поэтому
-ограничен `MAX_TILE_POINTS = 65536`, а дерево дробит глубже ReCap: на 1 086 140
-точках у нас 186 узлов (глубина 4) против 39 узлов (глубина 3, макс. 66 745);
-на 3 953 680 — 192 402 точки в узле у ReCap. Оба варианта валидны, Revit открывает наш.
+CONFIRMED (2026-10-30, ReCap exports `attic_south_ost` and `attic_south_west`):
+with **`count > 65,536`** there are still exactly `count` `kind = 8` records, but
+**`index` repeats** — exactly 65,536 unique values (0..65535) for 66,745 and for
+192,402 records (2.9 repetitions). So `index` is not a point id but a 16-bit slot
+that ReCap reuses. Our writer emits unique `index` values and is therefore limited
+to `MAX_TILE_POINTS = 65536`; the tree splits deeper than ReCap does: at
+1,086,140 points we get 186 tiles (depth 4) against 39 tiles (depth 3, max 66,745);
+at 3,953,680 ReCap has 192,402 points per tile. Both variants are valid, Revit
+opens ours.
 
-### 4.3 type 1 — метаданные
+### 4.3 type 1 — metadata
 
 ```
-блок = 128 байт (32 × u32) + K записей по 72 байта
-запись = u32 0, u32 0, +DOUBLE_MAX ×3, −DOUBLE_MAX ×3, u32 0, UINT_MAX, UINT_MAX, 0
+block = 128 bytes (32 x u32) + K records of 72 bytes
+record = u32 0, u32 0, +DOUBLE_MAX x3, -DOUBLE_MAX x3, u32 0, UINT_MAX, UINT_MAX, 0
 ```
 
-ПОДТВЕРЖДЕНО (`tools/analyze_type1.py`, тесты `MetadataHeaderTests`, 13 эталонов —
-оба диалекта, включая `level_7_orig`):
+CONFIRMED (`tools/analyze_type1.py`, `MetadataHeaderTests`, 13 references — both
+dialects, including `level_7_orig`):
 
-- непустые слова заголовка образуют **префикс**: после первого нуля только нули;
-- `words[L]` — число **занятых узлов октодерева на уровне `L`**: `words[0] = 1`
-  (корень), последнее слово = число листьев = число записей блока `type 3`.
-  Внутренние узлы в `type 3` не хранятся, но здесь посчитаны;
-- `K = (size − 128) / 72 = sum(words)` — **полное число узлов октодерева**;
-- все `K` записей идентичны и равны «пустому диапазону атрибута».
+- non-zero header words form a **prefix**: after the first zero only zeros follow;
+- `words[L]` is the number of **occupied octree tiles at level `L`**: `words[0] = 1`
+  (the root), the last word is the number of leaves = number of `type 3` records.
+  Internal tiles are not stored in `type 3` but are counted here;
+- `K = (size - 128) / 72 = sum(words)` — the **total number of octree tiles**;
+- all `K` records are identical and equal to an "empty attribute range".
 
-| Файл | уровень листьев | слова | `K` | размер |
+| File | leaf level | words | `K` | size |
 |---|---|---|---|---|
 | `probe6`, `test1`, `test2` | 1 | `(1, 3)` | 4 | 416 |
 | `attr_intensity` | 2 | `(1, 2, 2)` | 5 | 488 |
-| `golden/level_7` (и raw-копия) | 3 | `(1, 8, 13, 43)` | 65 | 4 808 |
-| `level_7_orig` | 4 | `(1, 8, 17, 64, 316)` | 406 | 29 360 |
+| `golden/level_7` (and the raw copy) | 3 | `(1, 8, 13, 43)` | 65 | 4,808 |
+| `level_7_orig` | 4 | `(1, 8, 17, 64, 316)` | 406 | 29,360 |
 
-Как проверяется: листья из `type 3` проецируются вверх по уровням
-(`родитель = cell >> (depth − L)`), число различных родителей на уровне `L`
-сравнивается с `words[L]`; `K` сравнивается с суммой слов.
+How it is checked: `type 3` leaves are projected upwards level by level
+(`parent = cell >> (depth - L)`), the number of distinct parents at level `L` is
+compared with `words[L]`, and `K` is compared with the word sum.
 
-Следствие для писателя: `build_metadata_block(words)` выводит число записей из
-слов (`records=None → sum(words)`), рассогласование отбрасывается как ошибка.
-Поэтому `probe6.pts` без всякого шаблона даёт `type 1`, совпадающий с эталоном
-байт-в-байт (`test_generated_block_matches_golden_probe6`).
+Consequence for the writer: `build_metadata_block(words)` derives the record count
+from the words (`records=None -> sum(words)`), and a mismatch is rejected as an
+error. That is why `probe6.pts` without any template produces a `type 1` block
+that matches the reference byte for byte
+(`test_generated_block_matches_golden_probe6`).
 
-ГИПОТЕЗА: запись соответствует одному узлу октодерева. Проверить нечем — во всех
-доступных файлах записи одинаковы, поэтому отличить «запись на узел» от «запись
-на уровень» нельзя. Смысл полей записи (диапазон атрибута?) — тоже открыт.
+HYPOTHESIS: one record corresponds to one octree tile. There is no way to check —
+in every available file the records are identical, so "one record per tile" cannot
+be distinguished from "one record per level". The meaning of the record fields (an
+attribute range?) is also open.
 
-ОПРОВЕРГНУТО: «слова — счётчики сканов/секторов, `K` не связан с узлами
-(43 узла → K = 65)». `K` — полное число узлов октодерева, включая внутренние.
+DISPROVED: "the words are scan/sector counters and `K` is unrelated to tiles
+(43 tiles -> K = 65)". `K` is the total number of octree tiles, including
+internal ones.
 
-### 4.4 type 0 / type 5 — свойства и превью
+### 4.4 type 0 / type 5 — properties and preview
 
-Экспорт (v5): блок `type 0`, ровно **134 байта**:
+Export (v5): block `type 0`, exactly **134 bytes**:
 
 ```
-u32 версия = 10
+u32 version = 10
 TLV (id u32, len u32, payload):
-  100  u8  = 1        версия схемы атрибутов
-  101  f32           верхняя граница активного атрибута
-  102  f32           нижняя граница
+  100  u8  = 1        attribute schema version
+  101  f32           upper bound of the active attribute
+  102  f32           lower bound
   201  u32 = 0
   202  u32 = 0
-  203  f64 = +π      204  f64 = −π
-  205  f64 = +π/2    206  f64 = −π/2
+  203  f64 = +pi     204  f64 = -pi
+  205  f64 = +pi/2   206  f64 = -pi/2
   301  u8  = 0
 ```
 
-ПОДТВЕРЖДЕНО: блок байт-в-байт одинаков у `probe6/test1/test2/level_7`; `101/102` —
-заглушки `−999999.0 / +999999.0`; `build_properties_block()` воспроизводит его точно.
+CONFIRMED: the block is byte-identical in `probe6/test1/test2/level_7`; `101/102`
+are stubs `-999999.0 / +999999.0`; `build_properties_block()` reproduces it
+exactly.
 
-В raw (v2) — те же 134 байта, но `101/102` содержат реальные значения:
-`probe6` → `(−1.0, −3.1111)` (max/min по высоте), `attr_intensity` → `(255.0, 0.0)`
-(max/min интенсивности). ГИПОТЕЗА: границы того атрибута, которым красится облако
-(интенсивность, иначе высота).
+In raw (v2) it is the same 134 bytes, but `101/102` hold real values:
+`probe6` -> `(-1.0, -3.1111)` (max/min along height), `attr_intensity` ->
+`(255.0, 0.0)` (max/min intensity). HYPOTHESIS: the bounds of the attribute used
+to colour the cloud (intensity, otherwise height).
 
-`level_7_orig.rcs` устроен иначе: ведущее слово `11`, `301 = 1`, дополнительный
-TLV `302` размером 256 байт нулей — другой набор настроек импорта.
+`level_7_orig.rcs` is laid out differently: leading word `11`, `301 = 1`, an extra
+TLV `302` of 256 zero bytes — a different import settings set.
 
-В raw-диалекте TLV-свойства лежат в `type 5`, а `type 0` — **JPEG-превью** скана
-(8 462 и 8 520 байт, начинается с `FF D8 FF E0 … JFIF`).
+In the raw dialect the TLV properties live in `type 5`, while `type 0` is a
+**JPEG preview** of the scan (8,462 and 8,520 bytes, starting with
+`FF D8 FF E0 ... JFIF`).
 
 ---
 
-## 5. Система координат и квантование
+## 5. Coordinate system and quantisation
 
-ПОДТВЕРЖДЕНО на `golden/probe6.rcs` и `golden/test2.rcs`:
+CONFIRMED on `golden/probe6.rcs` and `golden/test2.rcs`:
 
-1. `center` в заголовке — точный центр bbox исходного `.pts` (без округления).
-2. Локальная координата: `local = point − center`.
-3. Корневой куб центрирован в **нуле локальной системы**: `root_min = −R`,
-   `root_max = +R`. Значение `R = 2.25·2^k`, где `k` — минимальное, при котором
-   `R ≥ max|extent|` (`probe6`: `extent = 1.5` → `R = 2.25`; `level_7`:
-   `extent = 4.654` → `R = 9.0`).
-4. `extent` (полуразмеры bbox) в заголовке округлены до 1 мм.
-5. Тело точки хранит дельту до `cube_min` **сначала округлённую до 1 мм**:
+1. `center` in the header is the exact bbox centre of the source `.pts` (no rounding).
+2. Local coordinate: `local = point - center`.
+3. The root cube is centred at **zero of the local frame**: `root_min = -R`,
+   `root_max = +R`. `R = 2.25*2^k`, where `k` is the smallest value with
+   `R >= max|extent|` (`probe6`: `extent = 1.5` -> `R = 2.25`; `level_7`:
+   `extent = 4.654` -> `R = 9.0`).
+4. `extent` (bbox half-sizes) in the header is rounded to 1 mm.
+5. The point body stores the delta to `cube_min` **rounded to 1 mm first**:
 
    ```
-   delta_x = round(local.x − cube_min.x, 3) · 1000     (1 мм)
-   delta_y = round(local.y − cube_min.y, 3) · 4000     (¼ мм)
-   delta_z = round(local.z − cube_min.z, 3) · 16000    (1/16 мм)
+   delta_x = round(local.x - cube_min.x, 3) * 1000     (1 mm)
+   delta_y = round(local.y - cube_min.y, 3) * 4000     (1/4 mm)
+   delta_z = round(local.z - cube_min.z, 3) * 16000    (1/16 mm)
    ```
 
-ГИПОТЕЗА: разные масштабы по осям (1 / 0.25 / 0.0625 мм) — свойство формата,
-на всех проверенных точках правило выполняется; причина неизвестна.
+HYPOTHESIS: the per-axis scales (1 / 0.25 / 0.0625 mm) are a format property; the
+rule holds on every checked point, the reason is unknown.
 
 ---
 
-## 6. Построение дерева плиток
+## 6. Building the tile tree
 
-ПОДТВЕРЖДЕНО на эталонах:
+CONFIRMED on the reference files:
 
-- ребро плитки во **всех** файлах — `2.25 м` (`golden/level_7`: `R = 9`, ребро корня
-  `18`, глубина `3` → `18 / 2³ = 2.25`);
-- плитка = ячейка октодерева глубины `d = log2(2R / 2.25)`;
-- координаты ячейки: `cube_min = −R + index · edge`, где `index` — номер ячейки
-  по осям (0…2^d−1);
-- порядок узлов в блоке `type 3` — обход октодерева; на глубине 1 это возрастание
-  ключа `x + 2y + 4z` (проверено на `probe6` и `test2`). Для глубины 3 порядок
-  выглядит как DFS по детям `x + 2y + 4z` (ГИПОТЕЗА для глубоких уровней —
-  побайтовой сверки с ReCap нет).
+- the tile edge in **every** file is `2.25 m` (`golden/level_7`: `R = 9`, root edge
+  `18`, depth `3` -> `18 / 2^3 = 2.25`);
+- a tile is an octree cell of depth `d = log2(2R / 2.25)`;
+- cell coordinates: `cube_min = -R + index * edge`, where `index` is the cell number
+  along each axis (0..2^d-1);
+- the tile order in the `type 3` block is an octree walk; at depth 1 it is the
+  ascending key `x + 2y + 4z` (checked on `probe6` and `test2`). For depth 3 the
+  order looks like a DFS over children `x + 2y + 4z` (HYPOTHESIS for deep levels —
+  there is no byte-level comparison with ReCap).
 
-Писатель вправе выбрать **большую** глубину (мельче плитки): `pts2rcs` увеличивает
-`d`, пока в ячейке не останется не больше `--max-points-per-tile` точек. Файлы,
-собранные так (10 394 плитки вместо 43), Revit принял.
+The writer may choose a **greater** depth (smaller tiles): `pts2rcs` increases `d`
+until no cell holds more than `--max-points-per-tile` points. Files built this way
+(10,394 tiles instead of 43) were accepted by Revit.
 
 ---
 
-## 7. Два диалекта: raw (импорт) и export (Unified RCS)
+## 7. Two dialects: raw (import) and export (Unified RCS)
 
-ReCap пишет два разных файла для одного облака: `<проект> Support/<скан>.rcs`
-(сразу после импорта) и результат экспорта.
+ReCap writes two different files for one cloud: `<project> Support/<scan>.rcs`
+(right after import) and the export result.
 
 | | raw (`Support/*.rcs`) | export |
 |---|---|---|
 | `chunk_version` (@0xD4) | `2` | `5` |
-| типы блоков | `[3, 1, 11, 5, 0]` | `[3, 1, 11, 0]` |
-| свойства | `type 5` (TLV) | `type 0` (TLV) |
-| `type 0` | JPEG-превью, ~8.4 КБ | — |
-| полуразмеры bbox | полная точность (0.666667 / 1.5 / 1.055556) | округлены до 1 мм |
-| `101/102` в свойствах | реальные границы атрибута | заглушки `∓999999` |
-| `level_7`: count в заголовке | 324 648 из 324 680 | 317 548 |
-| `level_7`: сумма count по узлам | 323 353 | 317 538 |
-| байт/точка (`level_7`, блок `type 11`) | 22.734 | 22.763 |
+| block types | `[3, 1, 11, 5, 0]` | `[3, 1, 11, 0]` |
+| properties | `type 5` (TLV) | `type 0` (TLV) |
+| `type 0` | JPEG preview, ~8.4 KB | — |
+| bbox half-sizes | full precision (0.666667 / 1.5 / 1.055556) | rounded to 1 mm |
+| `101/102` in properties | real attribute bounds | stubs `-/+999999` |
+| `level_7`: count in the header | 324,648 of 324,680 | 317,548 |
+| `level_7`: sum of tile counts | 323,353 | 317,538 |
+| bytes/point (`level_7`, `type 11`) | 22.734 | 22.763 |
 
-ПОДТВЕРЖДЕНО: один и тот же читатель разбирает оба диалекта и даёт одинаковые точки
-(`Support/probe6.rcs` → те же 3 точки и цвета, порядок узлов другой).
+CONFIRMED: the same reader parses both dialects and returns the same points
+(`Support/probe6.rcs` -> the same 3 points and colours, different tile order).
 
-Версия схемы (`@0xD4`) зависит от пути импорта: у raw из `.laz` это `1`, у raw из
-«нетекстового» импорта — `134` (§2). Набор блоков при этом прежний, поэтому диалект
-определяется по блокам, а не по версии.
-
----
-
-## 8. Воспроизводимость ReCap
-
-ПОДТВЕРЖДЕНО (ReCap 2020 `6.0.0.110`):
-
-- **экспорт детерминирован почти во всём**: `golden/probe6.rcs` и
-  `golden/reference/probe6_orig.rcs` одного размера (100 327) и различаются только
-  строкой GUID и **младшим битом double** в полях `center` (@0x10), повторе центра
-  (@0x58), полуразмерах bbox (@0xA0) и — через них — в кубах/bbox узлов
-  (`type 3`, первые 96 байт записи). То же для `test1`, `test2`.
-  Пример: `center.y` = `1.6111111111111112` (импорт 2026-10-29) против
-  `1.6111111111111098` (2026-11-02) при одном и том же `.pts` — 1 ULP, но
-  побайтовое сравнение его видит (тест `ulp_prone_offsets`);
-- **импорт** ReCap тем же `.pts` даёт тот же файл, кроме GUID, если совпадают
-  настройки. Настройки видны в `.rcp` (`docs/RCP-FORMAT.md`), поэтому старые
-  расхождения объясняются не недетерминизмом, а разными `.rcp`:
-  `density="5"` (Decimation 5 мм) → 19 088 точек, без `density` (1 мм) → 19 093
-  на `level_7_n19099`;
-- **ReCap отбрасывает часть точек**:
-  * при импорте — 0.03…0.08 % (схлопывание в ячейке 1 мм); на разреженном
-    `level_7_n19099` потерь нет;
-  * при экспорте Unified — тем больше, чем плотнее облако: −2.2 % (324 680),
-    −5.9 % (1.09 млн), −17.6 % (3.95 млн). Похоже на децимацию сеткой ≈5 мм
-    (`docs/CORPUS.md`), настройкой не отключается;
-- **наш писатель** пишет **все** точки из `.pts`: `count` = числу строк, потерь нет.
-  Побайтовое доказательство держится на `golden/reference/*_orig.rcs` (там
-  расхождения с нашим файлом — только GUID и байты интенсивности).
+The schema version (@0xD4) depends on the import path: raw from `.laz` is `1`, raw
+from a "non-text" import is `134` (section 2). The block set stays the same, so the
+dialect is determined by the blocks, not by the version.
 
 ---
 
-## 9. Писатель: сборка файла
+## 8. ReCap reproducibility
 
-Инструменты: `tools/rcs_write.py` (структуры и сериализация), `tools/pts2rcs.py` (CLI).
+CONFIRMED (ReCap 2020 `6.0.0.110`):
 
-ПОДТВЕРЖДЕНО: `read → write` побайтово идентичен на 13 эталонах (оба диалекта),
-`test_round_trip_is_byte_identical`. `pts2rcs` воспроизводит `golden/probe6.rcs`
-до байта, кроме GUID и байта интенсивности.
+- **the export is deterministic almost everywhere**: `golden/probe6.rcs` and
+  `golden/reference/probe6_orig.rcs` have the same size (100,327) and differ only
+  in the GUID string and the **least significant bit of double** in `center`
+  (@0x10), the repeated centre (@0x58), the bbox half-sizes (@0xA0) and — through
+  them — in the tile cubes/bboxes (`type 3`, the first 96 bytes of a record). The
+  same holds for `test1`, `test2`.
+  Example: `center.y` = `1.6111111111111112` (import 2026-10-29) versus
+  `1.6111111111111098` (2026-11-02) for the same `.pts` — 1 ULP, but byte
+  comparison sees it (test `ulp_prone_offsets`);
+- importing the same `.pts` into ReCap gives the same file except the GUID when the
+  settings match. The settings are visible in `.rcp` (`docs/RCP-FORMAT.md`), so old
+  differences are explained by different `.rcp` files, not by non-determinism:
+  `density="5"` (Decimation 5 mm) -> 19,088 points, no `density` (1 mm) -> 19,093 on
+  `level_7_n19099`;
+- **ReCap drops some points**:
+  * on import — 0.03..0.08 % (collapsing inside a 1 mm cell); on the sparse
+    `level_7_n19099` there is no loss;
+  * on Unified export — the denser the cloud, the more: -2.2 % (324,680),
+    -5.9 % (1.09M), -17.6 % (3.95M). It looks like decimation on a grid of about
+    5 mm (`docs/CORPUS.md`), and it cannot be disabled by a setting;
+- **our writer** writes **all** points from `.pts`: `count` = number of lines, no
+  loss. The byte-level proof rests on `golden/reference/*_orig.rcs` (there the
+  differences from our file are only the GUID and the intensity bytes).
 
-Шаблон `.rcs` **не нужен** — все блоки генерируются. Константы заголовка:
+---
 
-| Поле | Значение |
+## 9. Writer: assembling a file
+
+Tools: `tools/rcs_write.py` (structures and serialisation), `tools/pts2rcs.py` (CLI).
+
+CONFIRMED: `read -> write` is byte-identical on 13 reference files (both dialects),
+`test_round_trip_is_byte_identical`. `pts2rcs` reproduces `golden/probe6.rcs` byte
+for byte except the GUID and the intensity byte.
+
+An `.rcs` template is **not needed** — every block is generated. Header constants:
+
+| Field | Value |
 |---|---|
 | `word4 / word8 / word12` | `84 / 3 / 2` |
 | `zeros28`, `unit` | `(0,0,0)`, `(1,1,1)` |
 | `chunk_id` | `131` |
 | `chunk_version` | `5` |
 | `flags` | `01 01 00` |
-| блоки | `[3, 1, 11, 0]` |
+| blocks | `[3, 1, 11, 0]` |
 
-Порядок сборки:
+Build order:
 
-1. `bounds(.pts)` → `center` (точный), `extent` (1 мм), `R = 2.25·2^k`.
-2. Глубина `d`: начиная с `log2(2R/2.25)` увеличивается, пока в ячейке не больше
-   `max_points_per_tile` точек (по умолчанию 1).
-3. Для каждой занятой ячейки — запись `type 3` (368 Б): куб, bbox точек (1 мм),
+1. `bounds(.pts)` -> `center` (exact), `extent` (1 mm), `R = 2.25*2^k`.
+2. Depth `d`: starting from `log2(2R/2.25)`, increase until no cell holds more than
+   `max_points_per_tile` points (1 by default).
+3. For every occupied cell — a `type 3` record (368 B): cube, point bbox (1 mm),
    `header_u32 = (1, count, payload_size, 0, 0, 0, 0, 0)`,
-   `tail_u32` — нули, кроме `tail[27] = count`.
-4. Payload узла (`type 11`): заголовок `count × (index, 0, 8)` + тела по 16 Б.
-5. `type 1` — `build_metadata_block(words)`: `words` = занятые узлы октодерева по
-   уровням, записей = `sum(words)` (см. §4.3). `--metadata minimal` — вырожденный
-   вариант `(1,)` + 1 запись (200 Б; инварианту §4.3 **не** удовлетворяет, годится
-   только как страховка), `--metadata template` — блок из эталона.
-6. `type 0` — `build_properties_block()` (134 Б).
+   `tail_u32` all zeros except `tail[27] = count`.
+4. Tile payload (`type 11`): header `count x (index, 0, 8)` + 16-byte bodies.
+5. `type 1` — `build_metadata_block(words)`: `words` = occupied octree tiles per
+   level, records = `sum(words)` (see section 4.3). `--metadata minimal` is the
+   degenerate variant `(1,)` + 1 record (200 B; it does **not** satisfy the 4.3
+   invariant and is only a fallback), `--metadata template` takes the block from a
+   reference.
+6. `type 0` — `build_properties_block()` (134 B).
 
-Глубина дерева: в узле не больше `count` тел, а `index` записи заголовка payload'а —
-`u16` (§4.2), значит **предел 65 536 точек на узел**. Отсюда `-m/--max-points-per-tile`:
-по умолчанию `auto` = 65536, дерево дробится только по необходимости. Для `level_7`
-это даёт глубину 3, 43 узла и блок `type 1` **байт-в-байт как в эталоне ReCap**
-(`(1, 8, 13, 43)`, 65 записей); меньшее значение (например `-m 200`) даёт более
-мелкое дерево и больший файл.
+Tree depth: a tile holds at most `count` bodies, and the payload header `index` is
+a `u16` (section 4.2), so the limit is **65,536 points per tile**. Hence
+`-m/--max-points-per-tile`: the default `auto` = 65536, and the tree only splits
+when necessary. For `level_7` this gives depth 3, 43 tiles and a `type 1` block
+**byte-identical to the ReCap reference** (`(1, 8, 13, 43)`, 65 records); a smaller
+value (for example `-m 200`) gives a finer tree and a larger file.
 
-### 9.1 Алгоритм сборки (псевдокод, для реализации на другом языке)
+### 9.1 Build algorithm (pseudocode, for another language)
 
-Формулы записаны так, чтобы их можно было перенести в Rust/C++/Go без чтения
-Python-кода. Все величины — метры, `round(x, 3)` — округление до 1 мм.
+The formulas are written so they can be ported to Rust/C++/Go without reading the
+Python code. All values are metres, `round(x, 3)` rounds to 1 mm.
 
 ```
 build(points, max_per_tile = 65536):
-    # 1. габариты и локальная система
-    lo, hi    = min/max по точкам (по каждой оси)
+    # 1. extents and the local frame
+    lo, hi    = min/max over the points (per axis)
     center    = (lo + hi) / 2
-    half      = round((hi - lo) / 2, 3)             # extent bbox, 1 мм
-    R         = 2.25 * 2^k, минимальное >= max(|half_x|,|half_y|,|half_z|)
+    half      = round((hi - lo) / 2, 3)             # bbox extent, 1 mm
+    R         = 2.25 * 2^k, the smallest >= max(|half_x|,|half_y|,|half_z|)
 
-    # 2. глубина дерева: ребро 2.25 м на «естественной» глубине, мельче — только
-    #    если в ячейке больше max_per_tile точек (предел u16 index)
+    # 2. tree depth: edge 2.25 m at the "natural" depth, finer only when a cell
+    #    holds more than max_per_tile points (the u16 index limit)
     d         = round(log2(2R / 2.25))
     repeat:
         edge  = 2R / 2^d
         cell(p)= ( clamp(floor((p.x - center.x + R) / edge), 0, 2^d - 1),
                    clamp(floor((p.y - center.y + R) / edge), 0, 2^d - 1),
                    clamp(floor((p.z - center.z + R) / edge), 0, 2^d - 1) )
-        if max(кол-во точек в ячейке) <= max_per_tile: break
-        d += 1                                        # до MAX_DEPTH = 20
+        if max(points per cell) <= max_per_tile: break
+        d += 1                                        # up to MAX_DEPTH = 20
 
-    # 3. порядок узлов — DFS по октантам от корня: key = (x + 2y + 4z) на каждом
-    #    уровне, от старшего бита индекса к младшему
+    # 3. tile order — DFS over octants from the root: key = (x + 2y + 4z) at every
+    #    level, from the most significant index bit to the least significant
     for cell in sort(occupied_cells, key = subtree_key(cell, d)):
         cube_min = -R + cell * edge
         cube_max = cube_min + edge
-        local(p) = p - center                          # локальная система файла
-        # 3.1 тела точек: координата относительно УГЛА УЗЛА
+        local(p) = p - center                          # local frame of the file
+        # 3.1 point bodies: coordinates relative to the TILE CORNER
         for p in cell:
-            ix = round((local(p).x - cube_min.x) * 1000)   # 1 мм
-            iy = round((local(p).y - cube_min.y) * 4000)   # 0.25 мм
-            iz = round((local(p).z - cube_min.z) * 16000)  # 0.0625 мм
-            assert ix,iy,iz in 0..65535                    # при edge = 2.25 м: 2250/9000/36000
+            ix = round((local(p).x - cube_min.x) * 1000)   # 1 mm
+            iy = round((local(p).y - cube_min.y) * 4000)   # 0.25 mm
+            iz = round((local(p).z - cube_min.z) * 16000)  # 0.0625 mm
+            assert ix,iy,iz in 0..65535                    # with edge 2.25 m: 2250/9000/36000
             body = u16(ix) u16(iy) u16(iz) u16(0) u8(intensity) u8(B) u8(G) u8(R) u32(0)
-        # 3.2 запись узла (368 Б, §4.1)
+        # 3.2 tile record (368 B, section 4.1)
         record = f64[3](cube_min) f64[3](cube_max)
-                 f64[3](min local) f64[3](max local)      # округлены до 1 мм
+                 f64[3](min local) f64[3](max local)      # rounded to 1 mm
                  u32[8] = (1, count, payload_size, 0,0,0,0,0)
-                 u32[60] = 0…0, tail[27] = count
-        # 3.3 payload узла (§4.2)
+                 u32[60] = 0..0, tail[27] = count
+        # 3.3 tile payload (section 4.2)
         payload = count * (u16(index=i), u8(0), u8(8)) + count * body
 
-    # 4. блоки файла, порядок и смещения — §1, §3
-    header.count  = число точек
+    # 4. file blocks, order and offsets — sections 1, 3
+    header.count  = number of points
     header.center = center; root_min = -R; root_max = +R
     header.extent_min = -half; extent_max = +half
-    directory + blocks [type 3, type 1, type 11, type 0] подряд с 0x1812D
+    directory + blocks [type 3, type 1, type 11, type 0] contiguously from 0x1812D
 
-    # 5. метаданные (§4.3)
-    words[L] = число РАЗЛИЧНЫХ родителей листьев на уровне L (L = 0..d),
-               words[0] = 1, последнее слово = число листьев
+    # 5. metadata (section 4.3)
+    words[L] = number of DISTINCT parents of the leaves at level L (L = 0..d),
+               words[0] = 1, the last word = number of leaves
     K = sum(words)
-    type_1 = u32[32] = words, остальные нули
-             + K записей по 72 Б: u32(0) u32(0) f64(+MAX)*3 f64(-MAX)*3
+    type_1 = u32[32] = words, the rest zeros
+             + K records of 72 B: u32(0) u32(0) f64(+MAX)*3 f64(-MAX)*3
                                   u32(0) u32(MAX) u32(MAX) u32(0)
 ```
 
-Инварианты, которые обязана соблюдать любая реализация — Приложение C.
+Every implementation must satisfy the invariants — Appendix C.
 
-CLI (`tools/cli_paths.py`): первый аргумент — вход (файл, каталог или маска), имя
-выхода подставляется само (`<имя>.rcs` / `<имя>.pts`), существующий выход без `-f`
-не перезаписывается, перепутанное направление (`pts2rcs` ← `.rcs`) отбивается
-с подсказкой.
-7. GUID: случайный `uuid4` в формате `{8_4_4_4_12}`; `--guid` — только для отладки,
-   проверяется до чтения `.pts`, дефисы нормализуются в подчёркивания.
+CLI (`tools/cli_paths.py`): the first argument is the input (file, directory or
+mask), the output name is derived (`<name>.rcs` / `<name>.pts`), an existing
+output is not overwritten without `-f`, and a swapped direction (`pts2rcs` with a
+`.rcs` input) is rejected with a hint.
+7. GUID: a random `uuid4` in the `{8_4_4_4_12}` format; `--guid` is for debugging
+   only and is validated before reading `.pts`; hyphens are normalised to
+   underscores.
 
-Ориентиры размера: `20·N` (тела + заголовки) `+ 368·tiles + ~98 КБ` постоянной части;
-при 200 точках на узел это ≈32 Б/точка (`level_7` → 10.4 МБ), при 1 точке на узел
-≈390 Б/точка.
+Size guide: `20*N` (bodies + headers) `+ 368*tiles + ~98 KB` of constant part; with
+200 points per tile that is about 32 B/point (`level_7` -> 10.4 MB), with 1 point
+per tile about 390 B/point.
 
 ---
 
-## 10. Приёмка
+## 10. Acceptance
 
-ПОДТВЕРЖДЕНО (Revit 2020, конечный потребитель) — открыты и показали корректное
-облако файлы, собранные `pts2rcs`:
+CONFIRMED (Revit 2020, the end consumer) — files built by `pts2rcs` opened and
+showed a correct cloud:
 
-| Файл | Точек | Узлов | `type 1` | Размер |
+| File | Points | Tiles | `type 1` | Size |
 |---|---|---|---|---|
-| `probe6_gen.rcs` | 3 | 3 | эталонный (4 записи) | 100 327 |
-| `attr_flat.rcs` | 6 | 6 | эталонный | 101 491 |
-| `attr_multi.rcs` | 6 | 2 | эталонный | 100 019 |
-| `level_7_multi.rcs` | 324 680 | 10 394 | эталонный | 10 422 147 |
-| `level_7_no_tpl.rcs` | 324 680 | 10 394 | сгенерированный (1 запись) | 10 417 539 |
-| `level_7_tpl_small.rcs` | 324 680 | 10 394 | из `probe6` (4 записи) | 10 417 755 |
-| `entrance.rcs` (вне репозитория) | 2 580 040 | 64 081 | — | 75 286 163 |
+| `probe6_gen.rcs` | 3 | 3 | reference (4 records) | 100,327 |
+| `attr_flat.rcs` | 6 | 6 | reference | 101,491 |
+| `attr_multi.rcs` | 6 | 2 | reference | 100,019 |
+| `level_7_multi.rcs` | 324,680 | 10,394 | reference | 10,422,147 |
+| `level_7_no_tpl.rcs` | 324,680 | 10,394 | generated (1 record) | 10,417,539 |
+| `level_7_tpl_small.rcs` | 324,680 | 10,394 | from `probe6` (4 records) | 10,417,755 |
+| `entrance.rcs` (outside the repository) | 2,580,040 | 64,081 | — | 75,286,163 |
 
-Следствие: содержимое `type 1` для Revit не критично, шаблон не нужен.
+Consequence: the contents of `type 1` do not matter to Revit, and no template is
+needed.
 
-Повторная приёмка после фазы 6 (когда `type 1` стал выводиться из октодерева):
-`probe6_gen.rcs`, `level_7_gen.rcs`, `level_7_no_tpl.rcs` открыты в **Revit 2023**
-(23.0.10.18) — облако и габариты верны. Revit 2020 на машине не установлен,
-поэтому прежняя запись «принято в Revit 2020» относится к более раннему прогону.
+Re-acceptance after phase 6 (when `type 1` became derived from the octree):
+`probe6_gen.rcs`, `level_7_gen.rcs`, `level_7_no_tpl.rcs` opened in **Revit 2023**
+(23.0.10.18) — the cloud and the dimensions were correct. Revit 2020 is not
+installed on the machine, so the earlier note "accepted in Revit 2020" refers to an
+older run.
 
-Статус критериев приёмки:
+Acceptance criteria status:
 
-| Критерий | Статус |
+| Criterion | Status |
 |---|---|
-| (а) файл открывается инструментом Autodesk | ✅ Revit 2023; ReCap 2020 напрямую не проверяли |
-| (б) bbox = bbox источника ±1e-3 | ✅ `validate_pts` / `rcs_inspect --pts`; у эталонов ReCap допуск 1 см (`INFO`) — они прорежены |
-| (в) count = число точек | ✅ `count` = числу строк `.pts` |
-| (г) координаты ±1e-6 | ✅ round-trip через наш читатель (`rcs2pts`); по x шаг квантования 1 мм |
-| (д) визуально облако совпадает | ✅ Revit 2023 |
+| (a) the file opens in an Autodesk tool | OK: Revit 2023; ReCap 2020 was not checked directly |
+| (b) bbox = source bbox +/-1e-3 | OK: `validate_pts` / `rcs_inspect --pts`; for ReCap references the tolerance is 1 cm (`INFO`) because they are thinned |
+| (c) count = number of points | OK: `count` = number of `.pts` lines |
+| (d) coordinates +/-1e-6 | OK: round-trip through our reader (`rcs2pts`); along x the quantisation step is 1 mm |
+| (e) the cloud matches visually | OK: Revit 2023 |
 
-Не проверено: линковка `ins.rvt` (модель Revit) с нашим файлом и открытие файла
-самим ReCap (доступен только Revit).
-
----
-
-## 11. Прочие наблюдения (на формат не влияют)
-
-- **Интенсивность.** Байт `[8]` тела — интенсивность (проба `attr_intensity`:
-  вход 0/40/80/120/160/255 → ровно те же значения). Без колонки интенсивности
-  ReCap пишет произвольные значения.
-- **Ограничения импортёра ReCap** (не формата): отвергаются облака из 2 точек,
-  6 точек без интенсивности (плоский bbox), 6 точек на прямой (6 колонок);
-  принимаются 3+ объёмных точки и облако с колонкой интенсивности.
-  Как единственная причина эти признаки опровергнуты — лог ReCap пуст.
-- **`.rcp`** — ZIP из трёх записей (`<guid>.jpg`, `<guid>.xml`, `rs_screenshot__.bmp`);
-  точек внутри нет, XML хранит настройки импорта и ссылки на `<имя> Support/<имя>.rcs`.
-  Разобран: `docs/RCP-FORMAT.md`, читается `tools/rcp_info.py`.
-  ОПРОВЕРГНУТО: «`.rcp` — не XML, а упакованный текстово-бинарный формат».
-- **Сентинелы.** В `type 1` пустые диапазоны кодируются `±DOUBLE_MAX`; в raw-свойствах
-  те же значения означают «атрибут не задан».
+Not verified: linking `ins.rvt` (a Revit model) with our file, and opening the file
+in ReCap itself (only Revit is available).
 
 ---
 
-## 12. Открытые вопросы (backlog)
+## 11. Other observations (they do not affect the format)
 
-| Вопрос | Ценность | Чем проверять |
+- **Intensity.** Byte `[8]` of the body is intensity (probe `attr_intensity`:
+  input 0/40/80/120/160/255 -> exactly the same values). Without an intensity
+  column ReCap writes arbitrary values.
+- **ReCap importer limits** (not format limits): a 2-point cloud is rejected, as
+  are 6 points without intensity (flat bbox) and 6 points on a straight line (6
+  columns); 3+ volumetric points and a cloud with an intensity column are
+  accepted. These features were disproved as the sole cause — the ReCap log is
+  empty.
+- **`.rcp`** is a ZIP of three entries (`<guid>.jpg`, `<guid>.xml`,
+  `rs_screenshot__.bmp`); there are no points inside, the XML stores import
+  settings and links to `<name> Support/<name>.rcs`. Parsed in
+  `docs/RCP-FORMAT.md`, read by `tools/rcp_info.py`.
+  DISPROVED: "`.rcp` is not XML but a packed text-binary format".
+- **Sentinels.** In `type 1` empty ranges are encoded as `+/-DOUBLE_MAX`; in raw
+  properties the same values mean "attribute not set".
+
+---
+
+## 12. Open questions (backlog)
+
+| Question | Value | How to check |
 |---|---|---|
-| Смысл полей записи `type 1` (все записи идентичны) | понимание | облако с реальными диапазонами атрибутов (несколько сканов, разные атрибуты) |
-| Смысл записей `kind 0…7` в заголовке payload'а узла | не нужен для Revit | файл с `kind 0…7` в ReCap; эталоны с известной геометрией |
-| Поля записи узла `@96`, `@108`, `@112`, `@116`, `@120` | не нужен (заполняются константами) | узлы с одинаковой геометрией, но разным содержимым |
-| Настоящий смысл `tail_u32` (60 слов) | не нужен (`tail[27] = count` достаточно) | узлы с большим числом точек |
-| Байты тела `[12]`, `[13]` (0…255 и 0…4) | понимание | корреляция с цветом/высотой/индексом узла на корпусе (13 экспортов) |
-| Точное правило байта `[8]`: 255 / высотный градиент / значение из входа | понимание | скан с **реальной** интенсивностью (у корпуса она нулевая) |
-| Почему `count` заголовка больше суммы по узлам | понимание импортёра | наблюдения: `level_7_n19099` 0, `level_7` 10, `attic_entrance` 87, `attic_south_ost` 91 |
-| Почему ReCap теряет точки при экспорте | понимание | основная причина — `Decimation grid` при импорте (5 мм → до −22 %); остаток объясняется децимацией экспорта сеткой ≈5 мм: 1 021 979 против 1 025 000 ячеек (+0.3 %), 317 548 против 317 951 (+0.13 %), 3 253 181 против 3 283 572 (+0.9 %). Подобрать шаг и начало сетки — `docs/CORPUS.md` |
-| Хвост TLV `type 5` (потеря синхронизации после нескольких записей) | диагностика raw | разбор `Support/*.rcs` |
-| Формат `.rcp`: `Color`, `MaxIntensity/MinIntensity`, `PointCloudSegmentList`, `bk1…bk3` | понимание UI | `docs/RCP-FORMAT.md` §5 |
+| Meaning of the `type 1` record fields (all records identical) | understanding | a cloud with real attribute ranges (several scans, different attributes) |
+| Meaning of `kind 0..7` records in the tile payload header | not needed for Revit | a file with `kind 0..7` from ReCap; references with known geometry |
+| Tile record fields `@96`, `@108`, `@112`, `@116`, `@120` | not needed (filled with constants) | tiles with the same geometry but different contents |
+| Real meaning of `tail_u32` (60 words) | not needed (`tail[27] = count` is enough) | tiles with many points |
+| Body bytes `[12]`, `[13]` (0..255 and 0..4) | understanding | correlation with colour/height/tile index on the corpus (13 exports) |
+| Exact rule for byte `[8]`: 255 / height gradient / input value | understanding | a scan with **real** intensity (the corpus has zero) |
+| Why the header `count` exceeds the sum over tiles | understanding the importer | observations: `level_7_n19099` 0, `level_7` 10, `attic_entrance` 87, `attic_south_ost` 91 |
+| Why ReCap loses points on export | understanding | the main cause is `Decimation grid` on import (5 mm -> up to -22 %); the rest is explained by export decimation on a grid of about 5 mm: 1,021,979 versus 1,025,000 cells (+0.3 %), 317,548 versus 317,951 (+0.13 %), 3,253,181 versus 3,283,572 (+0.9 %). Find the step and grid origin — `docs/CORPUS.md` |
+| TLV tail of `type 5` (loss of sync after several records) | raw diagnostics | parsing `Support/*.rcs` |
+| `.rcp` format: `Color`, `MaxIntensity/MinIntensity`, `PointCloudSegmentList`, `bk1..bk3` | understanding the UI | `docs/RCP-FORMAT.md` section 5 |
 
-Закрыто: «смысл слов заголовка `type 1` и числа `K`» — §4.3;
-«формат `.rcp` (контейнер и модель)» — `docs/RCP-FORMAT.md`;
-«настройки импорта, из-за которых менялись счётчики» — `density` в XML `.rcp`.
-
----
-
-## 13. ОПРОВЕРГНУТО (анти-грабли)
-
-- «`0x08` = количество точек» — нет: у `level_7` 324 680 точек, а там `3`.
-- «в файле массив точек по 48 байт, начиная с `0x10`» — нет: `0x10` это центр bbox.
-- «RCS = плоский список точек, размер = 16 + 48·N» — нет: контейнер с директорией блоков.
-- «достаточно добить файл нулями до 100 327 байт» — нет: без валидных блоков не откроется.
-- «первые координаты = (−0.7778, 1.6111, −2.0556)» — это центр bbox `probe6.pts`.
-- «`blockCount` лежит на `0x12D`» — нет: на `0x12D` константа `2`, счётчик на `0x129`.
-- «заголовок payload'а = `4·count` записей `index:08` + служебный хвост» — нет: записи
-  `kind = 8` перемешаны с записями `kind 0…7` по всему заголовку.
-- «последние `count` записей заголовка — перестановка» — нет.
-- «`index` записи `kind = 8` = номер тела точки» — нет: на `attr_intensity` тела идут
-  в порядке `[3,1,4,2,0]`, записи `kind = 8` дают `[4,1,2,3,0]`.
-- «`M` (число записей `kind ≠ 8`) связан с `tail_u32`» — нет.
-- «`length` в записи заголовка = байты тел» — нет, суммы не сходятся.
-
-### Почему попытка 2025 года была обречена (коротко)
-
-1. RCS считался «файлом с точками», а это контейнер с директорией блоков и октодеревом.
-2. Заголовок прочитан неверно: `0x10` — центр bbox, а не первая точка; `0x08` — не
-   число точек.
-3. Часть полей читалась как big-endian (в старом отчёте «версия 50331648, точек
-   33554432» — это `0x03000000` / `0x02000000`).
-4. Точки искались как `f64 XYZ` подряд — их в файле нет (координаты квантуются в узлах).
-5. Генератор писал 48-байтовые записи и добивал файл нулями до 100 327 байт: размер
-   совпадал, структуры не было.
-6. Хвост (GUID, таблицы, сентинелы) копировался из одного дампа — негарантируемо.
-7. Критерием успеха было «заголовок и размер совпали», а не «Revit открыл файл и
-   точки на месте». Отсюда правило `.clinerules` п.6: критерий — Revit, bbox, count.
-8. Артефакты той подгонки (`probe6.rcs`, `probe6_final.rcs`, `test1_gen.rsc`) удалены.
-
-Вывод: проблема была не в «проприетарности» формата, а в отсутствии проверяемой
-модели и в подмене критерия приёмки. Развёрнутый пост-мортем (7 ошибок, почему это
-казалось «закрытой дверью», что сработало и что теперь зафиксировано) —
-[`docs/LESSONS.md`](LESSONS.md).
+Closed: "meaning of the `type 1` header words and `K`" — section 4.3; "the `.rcp`
+format (container and model)" — `docs/RCP-FORMAT.md`; "import settings that changed
+the counts" — `density` in the `.rcp` XML.
 
 ---
 
-## Приложение A. Соответствие «поле → код»
+## 13. DISPROVED (anti-pitfalls)
 
-| Что | Где |
-|---|---|
-| Разбор контейнера, заголовок, директория | `tools/rcs_blocks.py` (`parse_file`, `Header`, `iter_tiles`) |
-| Тела точек | `tools/rcs_points.py` (`decode_body`, `decode_tile`) |
-| Заголовок payload'а узла | `tools/analyze_header.py` (`header_bytes`, `parse_records`) |
-| Блок метаданных (`type 1`) | `tools/analyze_type1.py` (`header_words`, `octree_counts`, `check_container`) |
-| Входы/выходы CLI (файл, каталог, маска) | `tools/cli_paths.py` (`expand_sources`, `default_target`) |
-| Приёмка пары (`.pts`, `.rcs`) | `tools/validate_pts.py` (`pts_stats`, `rcs_stats`, `compare`, `sanit_report`) |
-| Подвыборка `.pts` | `tools/pts_subset.py` (`scan_source`, `write_subset`) |
-| Чек-лист корпуса | `tools/corpus_status.py` (`status_of`, `find_export`) |
-| Импорт LAS/LAZ | `tools/las2pts.py` (`scan`, `convert`, `_to8`) |
-| Сериализация и генераторы блоков | `tools/rcs_write.py` (`build_file`, `build_tile_block`, `build_metadata_block`, `build_properties_block`, `make_guid`) |
-| `.pts` → `.rcs` | `tools/pts2rcs.py` (`build_output`, `read_pts`, `root_half`, `choose_depth`) |
-| `.las/.laz` → `.rcs` | `tools/las2rcs.py` + `tools/las_read.py` (`read_las`, `bounds`, `LasOptions`) |
-| Общий слой конвертеров | `tools/cloud.py` (точка, источник), `tools/rcs_build.py` (`build_from_source`), `tools/rcs_cli.py` (аргументы и цикл) |
-| Инварианты | `tools/rcs_checks.py` (`check_invariants`) |
-| Проект `.rcp` (ZIP + XML, настройки импорта) | `tools/rcp_info.py` (`read_project`, `describe`) |
+- "`0x08` = number of points" — no: `level_7` has 324,680 points and `0x08` holds `3`.
+- "the file has a 48-byte point array starting at `0x10`" — no: `0x10` is the bbox centre.
+- "RCS = a flat point list, size = 16 + 48*N" — no: it is a container with a block directory.
+- "padding the file with zeros up to 100,327 bytes is enough" — no: without valid blocks it will not open.
+- "the first coordinates are (-0.7778, 1.6111, -2.0556)" — that is the bbox centre of `probe6.pts`.
+- "`blockCount` is at `0x12D`" — no: `0x12D` holds the constant `2`, the counter is at `0x129`.
+- "the payload header is `4*count` records `index:08` plus a service tail" — no: `kind = 8` records are interleaved with `kind 0..7` records across the whole header.
+- "the last `count` header records are a permutation" — no.
+- "`index` of a `kind = 8` record = point body number" — no: on `attr_intensity` the bodies go in the order `[3,1,4,2,0]`, while the `kind = 8` records give `[4,1,2,3,0]`.
+- "`M` (number of `kind != 8` records) is related to `tail_u32`" — no.
+- "`length` in a header record = body bytes" — no, the sums do not match.
 
-Rust-порт (`rust/rcs-format`, крейт `rcs_format`; паритет — `cargo test`):
+### Why the 2025 attempt was doomed (short)
 
-| Что | Где |
-|---|---|
-| Заголовок, GUID, `to_bytes` | `header.rs` (`Header::parse`, `to_bytes`, `normalize_guid`) |
-| Директория блоков, диалект, JPEG-превью | `directory.rs` (`find_directory`, `Block`, `Dialect`) |
-| Контейнер и производные величины | `container.rs` (`Container::parse`, `block_of_type`, `tile_count`, `bytes_per_point`) |
-| Записи узлов (`type 3`) | `tile.rs` (`iter_tiles`, `tile_payload`, `tile_block_bytes`) |
-| Тела точек (`type 11`) | `point.rs` (`decode_body`, `encode_body`, `decode_tile`, `decode_all`) |
-| Блок метаданных (`type 1`) | `metadata.rs` (`Metadata::parse`, `build_metadata_block`) |
-| Блок свойств (`type 0`/`type 5`) | `properties.rs`, `tlv.rs` (`Properties::parse`, `build_properties_block`) |
-| Сериализация файла | `writer.rs` (`serialize`, `build_file`, `default_blocks`, `diff_ranges`) |
+1. RCS was treated as "a file with points", while it is a container with a block directory and an octree.
+2. The header was read incorrectly: `0x10` is the bbox centre, not the first point; `0x08` is not the point count.
+3. Some fields were read as big-endian (the old report said "version 50331648, 33554432 points" — those are `0x03000000` / `0x02000000`).
+4. Points were searched as consecutive `f64 XYZ` — they do not exist in the file (coordinates are quantised inside tiles).
+5. The generator wrote 48-byte records and padded the file with zeros to 100,327 bytes: the size matched, the structure did not.
+6. The tail (GUID, tables, sentinels) was copied from one dump — unguaranteed.
+7. Success was defined as "the header and the size matched", not "Revit opened the file and the points are in place". Hence `.clinerules` 6: the criterion is Revit, bbox, count.
+8. The artefacts of that fitting (`probe6.rcs`, `probe6_final.rcs`, `test1_gen.rsc`) were deleted.
 
-Сборка из облака (`rust/rcs-cloud`, `cloud-pts`, `cloud-las`, CLI `rust/rcsconv`):
-
-| Что | Где |
-|---|---|
-| Точка, bbox, контракт источника | `rcs-cloud/src/{point,source}.rs` |
-| Октодерево: `root_half`, `recap_depth`, `cell_of`, `subtree_key`, `choose_depth`, `level_counts` | `rcs-cloud/src/octree.rs` |
-| Сборка `.rcs` из точек, статистика | `rcs-cloud/src/build.rs` (`build_from_points`, `build_from_source`, `Stats`) |
-| GUID `{8_4_4_4_12}` | `rcs-cloud/src/guid.rs` |
-| `.pts` → точки | `cloud-pts/src/lib.rs` (`PtsSource`) |
-| `.las/.laz` → точки (крейт `las` + `laz`), `--units-scale/--recenter/--*-scale` | `cloud-las/src/lib.rs` (`LasSource`, `LasOptions`) |
-| CLI: аргументы, маски, имена выходов, отчёт | `rcsconv/src/{main,cli}.rs` |
-
-## Приложение B. Запуск
-
-## Приложение C. Чек-лист реализации на другом языке
-
-Инварианты, которые обязана соблюдать любая реализация (Rust/C++/Go/…), чтобы
-файл был принят Revit и совпал с эталонами ReCap. Каждый пункт проверяется
-тестами проекта (`tools/tests/test_container.py`) и `tools/validate_pts.py`.
-
-**Статус Rust-порта** (`rust/rcs-format`, фаза R1): закрыты пункты «Файл и
-заголовок», «Дерево», «Точки», «Метаданные», «Свойства» — `read → write` даёт
-побайтово идентичный файл на 9 эталонах (`probe6`, `test1`, `test2`, `level_7`
-и 5 файлов `golden/reference/`), `cargo test -p rcs-format`. Генерация контейнера
-из облака точек (дерево и тела с нуля) — фаза R2, приёмка `.pts` → `.rcs`.
-
-**Файл и заголовок**
-
-- [ ] сигнатура `ADOCT\0\0\0`, `word4=84`, `word8=3`, `word12=2`;
-- [ ] `center` — точный центр bbox (без округления), `center2 == center`;
-- [ ] `root_min/max = ∓R`, `R = 2.25·2^k` — минимальное покрытие bbox;
-- [ ] `extent_min/max = ∓round(half, 3)`;
-- [ ] `chunk_id = 131`, `chunk_version = 5`, `count` = число точек, `flags = 01 01 00`;
-- [ ] GUID строкой 38 байт `{8_4_4_4_12}` на `0xE3`, lower case, подчёркивания;
-- [ ] `blockCount` (`u32` @`0x129`) = число записей директории, `u32` @`0x12D` = 2;
-- [ ] директория начинается на **`0x135`** (не выровнена), запись 24 Б
-      `(offset u64, size u64, type u64)`, каждый offset абсолютный;
-- [ ] первый блок — на **`0x1812D`**, блоки идут подряд и **заканчиваются ровно на EOF**;
-- [ ] порядок блоков `[3, 1, 11, 0]` (дерево, метаданные, точки, свойства).
-
-**Дерево (`type 3`)**
-
-- [ ] `u64 tileCount`, затем `tileCount × 368` байт;
-- [ ] `cube_min/cube_max` — куб узла (`edge = 2R/2^depth`), `points_min/max` — bbox
-      точек узла, округлённый до 1 мм;
-- [ ] `u32 @96 = (1, count, payload_size, 0…)`, `tail[27] = count`;
-- [ ] сумма `payload_size` по узлам = размер блока `type 11`;
-- [ ] сумма `count` по узлам ≤ `count` заголовка (у нашего писателя — равно).
-
-**Точки (`type 11`)**
-
-- [ ] тело 16 Б: `u16 x, u16 y, u16 z, u16 0, u8 intensity, u8 B, u8 G, u8 R, u32 0`;
-- [ ] координаты — от **угла узла** (`cube_min`), масштабы `1000 / 4000 / 16000` на метр;
-- [ ] заголовок payload'а = `count × (u16 index, u8 0, u8 8)`, `index` = 0…count−1,
-      значит **`count ≤ 65 536`** (иначе `index` не помещается в `u16`);
-- [ ] сумма размеров payload'ов = размер блока.
-
-**Метаданные (`type 1`)**
-
-- [ ] заголовок 128 Б: `u32[32]`, непустые слова — префикс;
-- [ ] `words[L]` = число занятых узлов на уровне `L`, `words[0] = 1`;
-- [ ] `K = sum(words) = (size − 128) / 72` — полное число узлов октодерева;
-- [ ] все `K` записей по 72 Б идентичны (пустой диапазон, `±DBL_MAX`).
-
-**Свойства (`type 0`)**
-
-- [ ] 134 Б фиксированных TLV (наш случай); Revit принимает и эталонный, и наш.
-
-**Приёмка**
-
-- [ ] bbox = bbox источника ±1e-3 (наш файл), `count` = числу строк `.pts`;
-- [ ] файл открывается Revit (у нас — Revit 2023 23.0.10.18);
-- [ ] `tools/validate_pts.py … -s` — все проверки без `INFO`/`FAIL`;
-- [ ] `type 1` совпадает с эталоном ReCap байт-в-байт, если глубина та же
-      (проверено на `probe6` и `level_7`).
-
-
-```powershell
-python -m unittest discover -s tools/tests -v        # 85 тестов
-python tools/rcs_inspect.py golden/level_7.rcs --pts golden/level_7.pts
-python tools/rcs2pts.py golden/level_7.rcs --stdout > out/level_7.pts
-python tools/rcs_write.py golden/level_7.rcs out/copy.rcs      # проверка round-trip
-python tools/pts2rcs.py golden/level_7.pts -o out            # auto: 43 узла, как в эталоне
-python tools/pts2rcs.py "golden/*.pts" -o out                  # пачка → out/
-python tools/las2rcs.py golden/level_7.laz -o out              # LAS/LAZ → .rcs (laspy)
-python tools/validate_pts.py "golden/*.pts" -g golden          # сводка по всем парам
-python tools/corpus_status.py golden -g golden                 # чек-лист корпуса
-python tools/pts_subset.py scan.pts -n 20000 -o out/subset      # равномерная подвыборка
-python tools/las2pts.py "D:\laz\*.laz" -o out\pts              # LAS/LAZ → .pts (laspy)
-python tools/analyze_header.py golden/level_7.rcs --kinds
-python tools/analyze_type1.py "golden/*.rcs"
-```
-
-## Приложение D. Входной `.pts`
-
-ПОДТВЕРЖДЕНО на сканах из `output_tests/test_4` (9 файлов, 0.3–4.0 млн точек):
-
-- первая строка может быть **числом точек** (формат Leica Cyclone); у `probe6/test1/test2`
-  её нет — `read_pts` поддерживает оба варианта, а `validate_pts` сверяет шапку с
-  фактическим числом строк;
-- колонки: `x y z [intensity] r g b` — 6 или 7 значений; интенсивность может быть
-  нулевой во всём файле (в сканах `test_4` так и есть);
-- **идентификатора точки в `.pts` нет** (и в RCS тоже): порядок точек после
-  `pts → rcs → pts` не сохраняется (плитки идут в порядке обхода октодерева,
-  внутри плитки — исходный порядок);
-- точность координат в файле бывает 0.1 мм (4 знака). Шаг квантования RCS — 1 мм
-  по x, 0.25 мм по y, 0.0625 мм по z, поэтому по x возможна ошибка до 0.5 мм: это
-  свойство формата, а не конвертера.
-
-Откуда берутся `.pts` в корпусе: `.laz` → `tools/las2pts.py` (laspy). Правила
-конвертации, которые важно не потерять:
-
-- цвет и интенсивность в LAS 16-битные (0…65535), в `.pts` — 8-битные (0…255);
-  масштаб определяется по данным (`--color-scale auto`): максимум > 255 → ÷257,
-  иначе значения уже 8-битные. У сканов корпуса цвет 0…255, интенсивность = 0;
-- `las.x/.y/.z` — уже с масштабом и смещением; `--recenter` и `--units-scale`
-  нужны для внешних облаков (UTM/футы);
-- порядок точек сохраняется, шапка-счётчик пишется по умолчанию.
-
-
-
-
-
-
+Conclusion: the problem was not the "proprietary" format but the absence of a
+verifiable model and the substitution of the acceptance criterion. The full
+post-mortem (7 mistakes, why it looked like a "closed door", what worked, and what
+is now fixed) is in [`docs/LESSONS.md`](LESSONS.md).

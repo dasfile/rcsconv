@@ -1,17 +1,17 @@
-//! Сериализация контейнера: `Container` → байты.
+//! Container serialisation: `Container` -> bytes.
 //!
-//! ПОДТВЕРЖДЕНО (`docs/RCS-FORMAT.md` §9): `read → write` даёт побайтово
-//! идентичный файл на всех эталонах. Раскладка (Little-endian, без выравнивания):
+//! CONFIRMED (`docs/RCS-FORMAT.md` 9): `read -> write` produces a byte-identical
+//! file on every reference file. Layout (little-endian, no alignment):
 //!
 //! ```text
-//! 0x000 … 0x135   заголовок (см. `header::Header`)
-//! 0x135           директория: blockCount записей (offset u64, size u64, type u64)
-//! … 0x1812D       нули: терминатор директории и резерв
-//! 0x1812D … EOF   блоки подряд, в порядке директории
+//! 0x000 .. 0x135   header (see `header::Header`)
+//! 0x135            directory: blockCount records (offset u64, size u64, type u64)
+//! .. 0x1812D       zeros: directory terminator and reserve
+//! 0x1812D .. EOF   blocks back to back, in directory order
 //! ```
 //!
-//! Блоки `type 3` и `type 11` пересобираются из разобранных структур, остальные
-//! копируются как есть.
+//! Blocks `type 3` and `type 11` are rebuilt from the parsed structures; the
+//! others are copied as is.
 
 use crate::container::Container;
 use crate::directory::{DIR_RECORD_SIZE, FIRST_BLOCK_OFFSET};
@@ -19,10 +19,10 @@ use crate::error::{Error, Result};
 use crate::header::Header;
 use crate::tile::{iter_tiles, tile_block_bytes, tile_payload};
 
-/// Пересобрать блоки `type 3`/`type 11`, остальные скопировать как есть.
+/// Rebuild the `type 3`/`type 11` blocks, copy the rest as is.
 ///
-/// Именно это делает Python-эталон (`rcs_write.default_blocks`), поэтому результат
-/// обязан совпадать побайтово.
+/// This is exactly what the Python reference does (`rcs_write.default_blocks`),
+/// so the result must match byte for byte.
 pub fn default_blocks(container: &Container<'_>) -> Result<Vec<Vec<u8>>> {
     let tiles = iter_tiles(container)?;
     let mut points = Vec::new();
@@ -42,10 +42,11 @@ pub fn default_blocks(container: &Container<'_>) -> Result<Vec<Vec<u8>>> {
     Ok(blocks)
 }
 
-/// Собрать файл с нуля: заголовок, директория, резерв, блоки.
+/// Build a file from scratch: header, directory, reserve, blocks.
 ///
-/// `blocks` — пары `(type, содержимое)` в порядке директории: так писатель
-/// собирает `.rcs` без шаблона, все блоки выводятся из спецификации.
+/// `blocks` are `(type, contents)` pairs in directory order: this is how the
+/// writer builds a `.rcs` without a template — every block is derived from the
+/// specification.
 pub fn build_file(
     header: &Header,
     blocks: &[(u64, Vec<u8>)],
@@ -77,11 +78,11 @@ pub fn build_file(
     Ok(out)
 }
 
-/// Сериализовать контейнер.
+/// Serialise a container.
 ///
-/// `blocks` — подмена содержимого блоков по порядку директории (`None` —
-/// пересобрать `type 3`/`type 11` и скопировать остальные); `guid` — подменить
-/// строку GUID (`None` — сохранить исходную, как в Python-эталоне).
+/// `blocks` replaces block contents in directory order (`None` rebuilds
+/// `type 3`/`type 11` and copies the rest); `guid` replaces the GUID string
+/// (`None` keeps the original one, as in the Python reference).
 pub fn serialize(
     container: &Container<'_>,
     blocks: Option<&[Vec<u8>]>,
@@ -106,7 +107,7 @@ pub fn serialize(
     build_file(container.header(), &typed, guid)
 }
 
-/// Непрерывные интервалы `(начало, конец включительно)`, где байты различаются.
+/// Contiguous ranges `(start, end inclusive)` where the bytes differ.
 pub fn diff_ranges(left: &[u8], right: &[u8]) -> Result<Vec<(usize, usize)>> {
     if left.len() != right.len() {
         return Err(Error::SizeMismatch {

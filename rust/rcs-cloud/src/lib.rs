@@ -1,11 +1,11 @@
-//! Слой облака точек: точка, источник, октодерево, сборка `.rcs`.
+//! Point cloud layer: point, source, octree, `.rcs` build.
 //!
-//! Порт `tools/cloud.py` + `tools/rcs_build.py` (эталон — Python, паритет
-//! проверяется побайтово, `docs/ROADMAP.md` R2/R4).
+//! Port of `tools/cloud.py` + `tools/rcs_build.py` (Python is the reference,
+//! parity is checked byte by byte, `docs/ROADMAP.md` R2/R4).
 //!
-//! Модуль о формате входа ничего не знает: источник точек реализует
-//! [`Source`], поэтому `.pts` (`cloud-pts`) и `.las/.laz` (`cloud-las`)
-//! подключаются снаружи. Результат — Unified RCS (диалект v5, `chunk_version = 5`).
+//! This module knows nothing about input formats: a point source implements
+//! [`Source`], so `.pts` (`cloud-pts`) and `.las/.laz` (`cloud-las`) are plugged
+//! in from outside. The result is Unified RCS (dialect v5, `chunk_version = 5`).
 
 #![forbid(unsafe_code)]
 
@@ -25,15 +25,15 @@ pub use rcs_format::num::round_half_even;
 pub use rcs_format::header::normalize_guid;
 pub use source::{Bounds, Source};
 
-/// Ребро плитки, м: одинаково во всех эталонах ReCap.
+/// Tile edge, metres: the same in every ReCap reference file.
 pub const TILE_EDGE: f64 = 2.25;
-/// Полуширина корневого куба «нулевого» уровня.
+/// Half-width of the "level zero" root cube.
 pub const BASE_HALF: f64 = 2.25;
-/// Предел глубины октодерева (защита от вырожденных входов).
+/// Octree depth limit (protection against degenerate inputs).
 pub const MAX_DEPTH: u32 = 20;
-/// Предел точек в узле: запись заголовка payload'а — `u16 index`, т.е. `0…65535`.
+/// Points per tile limit: the payload header record uses a `u16 index`, i.e. `0..=65535`.
 pub const MAX_TILE_POINTS: u32 = 1 << 16;
-/// bbox узла округляется до 1 мм.
+/// Tile bbox is rounded to 1 mm.
 pub const BBOX_ROUND: usize = 3;
-/// `chunk_id` @`0xD0` у всех наших эталонов (у старого `level_7_orig` — 11).
+/// `chunk_id` @`0xD0` in all our reference files (the old `level_7_orig` has 11).
 pub const DEFAULT_CHUNK_ID: u32 = 131;

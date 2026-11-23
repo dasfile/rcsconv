@@ -1,8 +1,8 @@
-//! Главное окно: регистрация класса, очередь файлов, цикл сообщений.
+//! Main window: class registration, file queue, message loop.
 //!
-//! Фаза G2 (`docs/ROADMAP.md` §4.1): список файлов (`SysListView32`), выбор
-//! файлов и каталогов диалогами, перетаскивание, «Убрать»/«Очистить».
-//! Параметры и конвертация — G3/G4.
+//! Phases G2-G4 (`docs/ROADMAP.md` 4.1): file list (`SysListView32`), file and
+//! directory dialogs, drag and drop, Remove/Clear, conversion parameters and the
+//! background conversion job.
 
 use std::ffi::c_void;
 use std::ptr;
@@ -21,31 +21,31 @@ use crate::model::{self, EntryStatus, Id, Queue};
 use crate::params::{RecenterChoice, Settings};
 use crate::win32;
 
-/// `COLOR_WINDOW` (5) + 1: так Win32 просит системную кисть фона окна.
+/// `COLOR_WINDOW` (5) + 1: this is how Win32 asks for the system window brush.
 const BACKGROUND_BRUSH: u32 = 5 + 1;
 
-/// Идентификатор таймера опроса фонового потока.
+/// Timer id used to poll the background thread.
 const TIMER_ID: usize = 1;
 
-/// Период опроса, мс.
+/// Poll period, ms.
 const TIMER_PERIOD: u32 = 120;
 
-/// Фильтр диалога выбора файлов.
+/// File dialog filter.
 const OPEN_FILTER: [(&str, &str); 2] =
-    [("Облака точек", "*.las;*.laz;*.pts"), ("Все файлы", "*.*")];
+    [("Point clouds", "*.las;*.laz;*.pts"), ("All files", "*.*")];
 
-/// Состояние окна: живёт в `GWLP_USERDATA` главного окна.
+/// Window state: lives in `GWLP_USERDATA` of the main window.
 struct State {
     queue: Queue,
-    /// Задание в фоне (если идёт конвертация).
+    /// Background job (while a conversion is running).
     job: Option<Job>,
-    /// Сколько результатов уже перенесено в список.
+    /// How many results are already shown in the list.
     applied: usize,
-    /// Итог последнего прогона (показывается в подсказке).
+    /// Summary of the last run (shown in the hint).
     summary: Option<String>,
 }
 
-/// Фоновое задание.
+/// Background job.
 struct Job {
     shared: Arc<Shared>,
     handle: JoinHandle<()>,
@@ -57,7 +57,7 @@ impl State {
     }
 }
 
-/// Запустить интерфейс; вернуть код выхода процесса.
+/// Start the interface; return the process exit code.
 pub fn run() -> u8 {
     win32::enable_dpi_awareness();
     win32::init_common_controls();
@@ -66,25 +66,25 @@ pub fn run() -> u8 {
     let class_name = win32::wide(model::WINDOW_CLASS);
     let title = win32::wide(model::WINDOW_TITLE);
 
-    // SAFETY: WNDCLASSW — обычная структура; заполняем нужные поля, остальные нули.
+    // SAFETY: WNDCLASSW is a plain struct; we fill the needed fields, the rest stay zero.
     let mut class: WNDCLASSW = unsafe { std::mem::zeroed() };
     class.style = CS_HREDRAW | CS_VREDRAW;
     class.lpfnWndProc = Some(wndproc);
     class.hInstance = instance;
-    // SAFETY: IDC_ARROW — стандартный курсор; hInstance для него не используется.
+    // SAFETY: IDC_ARROW is the standard cursor; hInstance is not used for it.
     class.hCursor = unsafe { LoadCursorW(ptr::null_mut(), IDC_ARROW) };
     class.hbrBackground = BACKGROUND_BRUSH as HBRUSH;
     class.lpszClassName = class_name.as_ptr();
 
-    // SAFETY: все указатели в class валидны и живут до конца функции.
+    // SAFETY: all pointers in class are valid and live until the end of the function.
     let atom = unsafe { RegisterClassW(&class) };
     if atom == 0 {
-        show_error("не удалось зарегистрировать класс окна");
+        show_error("failed to register the window class");
         return 2;
     }
 
     let dpi = win32::system_dpi();
-    // SAFETY: строки живут до конца выражения, instance получен из системы.
+    // SAFETY: the strings live until the end of the expression, instance comes from the system.
     let hwnd = unsafe {
         CreateWindowExW(
             0,
@@ -102,13 +102,13 @@ pub fn run() -> u8 {
         )
     };
     if hwnd.is_null() {
-        show_error("не удалось создать главное окно");
+        show_error("failed to create the main window");
         return 3;
     }
 
-    // Владелец состояния — окно; освобождается в WM_DESTROY.
+    // The window owns the state; it is freed in WM_DESTROY.
     let state = Box::into_raw(State::new());
-    // SAFETY: hwnd жив; указатель на Box не освобождается до WM_DESTROY.
+    // SAFETY: hwnd is alive; the Box pointer is not freed before WM_DESTROY.
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, state as isize);
     }
@@ -116,7 +116,7 @@ pub fn run() -> u8 {
     refresh(hwnd);
 
     win32::show(hwnd);
-    // SAFETY: hwnd создан и ещё не уничтожен.
+    // SAFETY: hwnd is created and not destroyed yet.
     unsafe {
         UpdateWindow(hwnd);
     }
@@ -124,19 +124,19 @@ pub fn run() -> u8 {
     message_loop()
 }
 
-/// Цикл сообщений до `WM_QUIT`.
+/// Message loop until `WM_QUIT`.
 fn message_loop() -> u8 {
-    // SAFETY: MSG — обычная структура Win32; нули — корректное начальное значение.
+    // SAFETY: MSG is a plain Win32 struct; zeros are a valid initial value.
     let mut message: MSG = unsafe { std::mem::zeroed() };
     loop {
-        // SAFETY: указатель на message валиден, фильтр — «все сообщения».
+        // SAFETY: the message pointer is valid, the filter means all messages.
         let result = unsafe { GetMessageW(&mut message, ptr::null_mut(), 0, 0) };
         match result {
             0 => return message.wParam as u8,
             -1 => return 1,
             _ => {}
         }
-        // SAFETY: message заполнено GetMessageW.
+        // SAFETY: message is filled by GetMessageW.
         unsafe {
             TranslateMessage(&message);
             DispatchMessageW(&message);
@@ -144,41 +144,41 @@ fn message_loop() -> u8 {
     }
 }
 
-/// Указатель на состояние окна (NULL до `run()` и после `WM_DESTROY`).
+/// Pointer to the window state (NULL before `run()` and after `WM_DESTROY`).
 fn state_ptr(hwnd: HWND) -> *mut State {
-    // SAFETY: GWLP_USERDATA заполняется нами в run(); значение — указатель на Box.
+    // SAFETY: GWLP_USERDATA is set by us in run(); the value is a Box pointer.
     unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut State }
 }
 
-/// Выполнить действие над состоянием окна, если оно уже создано.
+/// Run an action on the window state when it already exists.
 fn with_state<R>(hwnd: HWND, action: impl FnOnce(&mut State) -> R) -> Option<R> {
     let pointer = state_ptr(hwnd);
     if pointer.is_null() {
         return None;
     }
-    // SAFETY: указатель валиден, пока окно живо; все вызовы идут из UI-потока.
+    // SAFETY: the pointer is valid while the window is alive; calls come from the UI thread.
     let state = unsafe { &mut *pointer };
     Some(action(state))
 }
 
-/// Забрать состояние при уничтожении окна.
+/// Take the state when the window is destroyed.
 fn take_state(hwnd: HWND) {
     let pointer = state_ptr(hwnd);
     if pointer.is_null() {
         return;
     }
-    // SAFETY: указатель получен из Box::into_raw в run() и больше не используется.
+    // SAFETY: the pointer came from Box::into_raw in run() and is not used any more.
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         drop(Box::from_raw(pointer));
     }
 }
 
-/// Оконная процедура: контролы, раскладка, команды, перетаскивание.
+/// Window procedure: controls, layout, commands, drag and drop.
 ///
 /// # Safety
 ///
-/// Вызывается только системой; `hwnd` — живое окно нашего класса.
+/// Called by the system only; `hwnd` is a live window of our class.
 unsafe extern "system" fn wndproc(
     hwnd: HWND,
     message: u32,
@@ -197,11 +197,11 @@ unsafe extern "system" fn wndproc(
             0
         }
         WM_GETMINMAXINFO => {
-            // Не даём сжать окно меньше минимального размера раскладки.
+            // Do not let the window shrink below the minimum layout size.
             let info = lparam as *mut MINMAXINFO;
             if !info.is_null() {
                 let dpi = win32::dpi_of(hwnd);
-                // SAFETY: Win32 передаёт валидный указатель на MINMAXINFO в этом сообщении.
+                // SAFETY: Win32 passes a valid MINMAXINFO pointer in this message.
                 let info = unsafe { &mut *info };
                 info.ptMinTrackSize.x =
                     model::scale(model::MIN_SIZE_96.0, dpi) + model::scale(32, dpi);
@@ -211,12 +211,12 @@ unsafe extern "system" fn wndproc(
             0
         }
         WM_DPICHANGED => {
-            // lparam — предлагаемый прямоугольник окна для нового монитора.
+            // lparam is the suggested window rectangle for the new monitor.
             let suggested = lparam as *const RECT;
             if !suggested.is_null() {
-                // SAFETY: Win32 передаёт валидный указатель на RECT в этом сообщении.
+                // SAFETY: Win32 passes a valid RECT pointer in this message.
                 let rect = unsafe { *suggested };
-                // SAFETY: hwnd жив; координаты взяты из предложенного прямоугольника.
+                // SAFETY: hwnd is alive; coordinates come from the suggested rectangle.
                 unsafe {
                     SetWindowPos(
                         hwnd,
@@ -252,32 +252,32 @@ unsafe extern "system" fn wndproc(
             0
         }
         WM_DESTROY => {
-            // Отменяем фоновую работу и снимаем таймер до освобождения состояния.
+            // Cancel the background work and kill the timer before the state is freed.
             with_state(hwnd, |state| {
                 if let Some(job) = state.job.take() {
                     job.shared.cancel();
                     let _ = job.handle.join();
                 }
             });
-            // SAFETY: hwnd ещё жив на этом сообщении; таймер принадлежит окну.
+            // SAFETY: hwnd is still alive in this message; the timer belongs to the window.
             unsafe {
                 KillTimer(hwnd, TIMER_ID);
             }
             take_state(hwnd);
-            // SAFETY: WM_DESTROY приходит последним для этого потока.
+            // SAFETY: WM_DESTROY arrives last for this thread.
             unsafe {
                 PostQuitMessage(0);
             }
             0
         }
         _ => {
-            // SAFETY: DefWindowProcW — обработчик по умолчанию для остальных сообщений.
+            // SAFETY: DefWindowProcW is the default handler for the remaining messages.
             unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
         }
     }
 }
 
-/// Создать элементы окна.
+/// Create the window controls.
 fn create_controls(hwnd: HWND) {
     let version = model::version_line();
     win32::create_child(hwnd, "STATIC", &version, WS_CHILD | WS_VISIBLE, Id::Title.raw());
@@ -295,12 +295,12 @@ fn create_controls(hwnd: HWND) {
     );
     win32::list_init(list, win32::dpi_of(hwnd));
 
-    // Параметры конвертации: подписи, поля, список, флажки.
+    // Conversion parameters: labels, fields, combo box, check boxes.
     for (id, text) in [
-        (Id::LabelOutDir, "Папка вывода"),
-        (Id::LabelUnits, "Масштаб"),
-        (Id::LabelRecenter, "Центрирование"),
-        (Id::LabelMaxTile, "Точек в узле"),
+        (Id::LabelOutDir, "Output folder"),
+        (Id::LabelUnits, "Scale"),
+        (Id::LabelRecenter, "Recenter"),
+        (Id::LabelMaxTile, "Points per tile"),
         (Id::LabelGuid, "GUID"),
     ] {
         win32::create_child(hwnd, "STATIC", text, WS_CHILD | WS_VISIBLE, id.raw());
@@ -327,10 +327,10 @@ fn create_controls(hwnd: HWND) {
     win32::combo_fill(combo, &labels, 0);
 
     for (id, text) in [
-        (Id::ColorCheck, "Цвет"),
-        (Id::IntensityCheck, "Интенсивность"),
-        (Id::ForceCheck, "Перезаписывать .rcs"),
-        (Id::RecursiveCheck, "С подкаталогами"),
+        (Id::ColorCheck, "Colour"),
+        (Id::IntensityCheck, "Intensity"),
+        (Id::ForceCheck, "Overwrite .rcs"),
+        (Id::RecursiveCheck, "Include subfolders"),
     ] {
         win32::create_child(
             hwnd,
@@ -343,12 +343,12 @@ fn create_controls(hwnd: HWND) {
     win32::create_child(
         hwnd,
         "BUTTON",
-        "Обзор…",
+        "Browse...",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
         Id::BrowseOut.raw(),
     );
 
-    // Прогресс и кнопки запуска.
+    // Progress bar and action buttons.
     let bar = win32::create_child_ex(
         hwnd,
         WS_EX_CLIENTEDGE,
@@ -361,24 +361,24 @@ fn create_controls(hwnd: HWND) {
     win32::create_child(
         hwnd,
         "BUTTON",
-        "Конвертировать",
+        "Convert",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
         Id::Convert.raw(),
     );
     win32::create_child(
         hwnd,
         "BUTTON",
-        "Открыть папку",
+        "Open folder",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
         Id::OpenOut.raw(),
     );
 
     for (id, text) in [
-        (Id::AddFiles, "Добавить файлы…"),
-        (Id::AddFolder, "Добавить папку…"),
-        (Id::Remove, "Убрать"),
-        (Id::Clear, "Очистить"),
-        (Id::Close, "Закрыть"),
+        (Id::AddFiles, "Add files..."),
+        (Id::AddFolder, "Add folder..."),
+        (Id::Remove, "Remove"),
+        (Id::Clear, "Clear"),
+        (Id::Close, "Close"),
     ] {
         win32::create_child(
             hwnd,
@@ -390,7 +390,7 @@ fn create_controls(hwnd: HWND) {
     }
 }
 
-/// Разложить контролы по текущему размеру клиентской области и dpi.
+/// Lay the controls out for the current client size and dpi.
 fn layout_controls(hwnd: HWND) {
     let (width, height) = win32::client_size(hwnd);
     let dpi = win32::dpi_of(hwnd);
@@ -427,7 +427,7 @@ fn layout_controls(hwnd: HWND) {
     }
 }
 
-/// Обработать нажатие кнопки или изменение параметра.
+/// Handle a button press or a parameter change.
 fn handle_command(hwnd: HWND, id: usize) {
     if id == Id::AddFiles.raw() {
         add_files(hwnd);
@@ -451,12 +451,12 @@ fn handle_command(hwnd: HWND, id: usize) {
         save_settings(hwnd);
         win32::destroy(hwnd);
     } else if is_parameter(id) {
-        // Изменился параметр: пересчитываем подсказку (в ней же — ошибки ввода).
+        // A parameter changed: refresh the hint (which also shows input errors).
         refresh(hwnd);
     }
 }
 
-/// Относится ли `id` к полям параметров.
+/// Whether `id` belongs to the parameter fields.
 fn is_parameter(id: usize) -> bool {
     [
         Id::OutDir,
@@ -473,9 +473,9 @@ fn is_parameter(id: usize) -> bool {
     .any(|candidate| candidate.raw() == id)
 }
 
-/// «Обзор…» — выбрать папку вывода.
+/// "Browse..." — choose the output folder.
 fn browse_output(hwnd: HWND) {
-    let Some(folder) = win32::browse_folder(hwnd, "Папка для результатов") else {
+    let Some(folder) = win32::browse_folder(hwnd, "Folder for the results") else {
         return;
     };
     let edit = win32::child(hwnd, Id::OutDir.raw());
@@ -483,7 +483,7 @@ fn browse_output(hwnd: HWND) {
     refresh(hwnd);
 }
 
-/// «Конвертировать» / «Отмена» — одна кнопка на два состояния.
+/// "Convert" / "Cancel" — one button with two states.
 fn toggle_convert(hwnd: HWND) {
     let running = with_state(hwnd, |state| state.job.is_some()).unwrap_or(false);
     if running {
@@ -493,11 +493,11 @@ fn toggle_convert(hwnd: HWND) {
     }
 }
 
-/// Запустить конвертацию очереди в фоновом потоке.
+/// Start converting the queue in a background thread.
 fn start_convert(hwnd: HWND) {
     let settings = read_settings(hwnd);
     if let Err(message) = settings.validate() {
-        warn(hwnd, &format!("Проверьте параметры: {message}"));
+        warn(hwnd, &format!("Check the settings: {message}"));
         return;
     }
 
@@ -509,7 +509,7 @@ fn start_convert(hwnd: HWND) {
     })
     .unwrap_or((Vec::new(), true));
     if empty {
-        warn(hwnd, "Очередь пуста: добавьте файлы .las/.laz/.pts.");
+        warn(hwnd, "The queue is empty: add .las/.laz/.pts files.");
         return;
     }
 
@@ -520,24 +520,24 @@ fn start_convert(hwnd: HWND) {
     refresh(hwnd);
     let bar = win32::child(hwnd, Id::Progress.raw());
     win32::progress_set(bar, 0);
-    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Отмена");
-    // SAFETY: hwnd жив; таймер снимается в on_timer/WM_DESTROY.
+    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Cancel");
+    // SAFETY: hwnd is alive; the timer is killed in on_timer/WM_DESTROY.
     unsafe {
         SetTimer(hwnd, TIMER_ID, TIMER_PERIOD, None);
     }
 }
 
-/// Попросить фоновый поток остановиться.
+/// Ask the background thread to stop.
 fn cancel_convert(hwnd: HWND) {
     let _ = with_state(hwnd, |state| {
         if let Some(job) = &state.job {
             job.shared.cancel();
         }
     });
-    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Отмена…");
+    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Cancelling...");
 }
 
-/// Опрос фонового потока: прогресс-бар, состояния строк, финал.
+/// Poll the background thread: progress bar, row states, final summary.
 fn on_timer(hwnd: HWND) {
     let info = with_state(hwnd, |state| {
         let job = state.job.as_ref()?;
@@ -554,7 +554,7 @@ fn on_timer(hwnd: HWND) {
     let hint = win32::child(hwnd, Id::Hint.raw());
     win32::set_text(
         hint,
-        &format!("{}: {} из {} ({} %)", stage.title(), done, total, percent),
+        &format!("{}: {} of {} ({} %)", stage.title(), done, total, percent),
     );
 
     let _ = with_state(hwnd, |state| {
@@ -572,7 +572,7 @@ fn on_timer(hwnd: HWND) {
         return;
     }
 
-    // SAFETY: hwnd жив; таймер больше не нужен.
+    // SAFETY: hwnd is alive; the timer is no longer needed.
     unsafe {
         KillTimer(hwnd, TIMER_ID);
     }
@@ -594,22 +594,22 @@ fn on_timer(hwnd: HWND) {
             }
         }
         let mut text =
-            format!("Готово: записано {written}, пропущено {skipped}, ошибок {failed}");
+            format!("Done: {written} written, {skipped} skipped, {failed} failed");
         if cancelled > 0 {
-            text.push_str(&format!(", отменено {cancelled}"));
+            text.push_str(&format!(", {cancelled} cancelled"));
         }
         state.summary = Some(text.clone());
         text
     })
-    .unwrap_or_else(|| "Готово".to_string());
+    .unwrap_or_else(|| "Done".to_string());
 
-    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Конвертировать");
+    win32::set_text(win32::child(hwnd, Id::Convert.raw()), "Convert");
     win32::progress_set(bar, 100);
     refresh(hwnd);
     win32::set_text(win32::child(hwnd, Id::Hint.raw()), &summary);
 }
 
-/// Итог конвертации одного файла → состояние строки списка.
+/// Result of one file conversion -> list row state.
 fn entry_status(status: rcs_conv::Status) -> EntryStatus {
     match status {
         rcs_conv::Status::Written => EntryStatus::Written,
@@ -619,7 +619,7 @@ fn entry_status(status: rcs_conv::Status) -> EntryStatus {
     }
 }
 
-/// «Открыть папку» — показать каталог результатов в проводнике.
+/// "Open folder" — show the result directory in Explorer.
 fn open_output_folder(hwnd: HWND) {
     let settings = read_settings(hwnd);
     let folder = if settings.out_dir.trim().is_empty() {
@@ -630,7 +630,7 @@ fn open_output_folder(hwnd: HWND) {
         match first.and_then(|path| path.parent().map(|parent| parent.to_path_buf())) {
             Some(parent) => parent,
             None => {
-                warn(hwnd, "Нечего открывать: укажите папку вывода или добавьте файлы.");
+                warn(hwnd, "Nothing to open: set an output folder or add files.");
                 return;
             }
         }
@@ -638,27 +638,27 @@ fn open_output_folder(hwnd: HWND) {
         std::path::PathBuf::from(settings.out_dir.trim())
     };
     if !folder.exists() {
-        warn(hwnd, &format!("Папки пока нет: {}", folder.display()));
+        warn(hwnd, &format!("The folder does not exist yet: {}", folder.display()));
         return;
     }
     if !win32::shell_open(&folder) {
-        warn(hwnd, &format!("Не удалось открыть {}", folder.display()));
+        warn(hwnd, &format!("Cannot open {}", folder.display()));
     }
 }
 
-/// Короткое сообщение об ошибке поверх окна.
+/// Short error message on top of the window.
 fn warn(hwnd: HWND, text: &str) {
     let text = win32::wide(text);
     let caption = win32::wide("rcsconv-gui");
-    // SAFETY: строки живут до возврата из MessageBoxW; hwnd — владелец окна.
+    // SAFETY: the strings live until MessageBoxW returns; hwnd owns the window.
     unsafe {
         MessageBoxW(hwnd, text.as_ptr(), caption.as_ptr(), MB_ICONWARNING | MB_OK);
     }
 }
 
-/// «Добавить файлы…» — диалог с мультивыбором.
+/// "Add files..." — multi-select dialog.
 fn add_files(hwnd: HWND) {
-    let files = win32::open_files(hwnd, "Добавить облака точек", &OPEN_FILTER);
+    let files = win32::open_files(hwnd, "Add point clouds", &OPEN_FILTER);
     if files.is_empty() {
         return;
     }
@@ -669,9 +669,9 @@ fn add_files(hwnd: HWND) {
     refresh(hwnd);
 }
 
-/// «Добавить папку…» — каталог со всеми файлами (с обходом подкаталогов).
+/// "Add folder..." — a directory with all files (walking subdirectories).
 fn add_folder(hwnd: HWND) {
-    let Some(folder) = win32::browse_folder(hwnd, "Выберите папку с облаками точек") else {
+    let Some(folder) = win32::browse_folder(hwnd, "Select a folder with point clouds") else {
         return;
     };
     let _ = with_state(hwnd, |state| {
@@ -681,7 +681,7 @@ fn add_folder(hwnd: HWND) {
     refresh(hwnd);
 }
 
-/// «Убрать» — удалить выделенный файл из очереди.
+/// "Remove" — delete the selected file from the queue.
 fn remove_selected(hwnd: HWND) {
     let list = win32::child(hwnd, Id::List.raw());
     let Some(index) = win32::list_selected(list) else {
@@ -694,7 +694,7 @@ fn remove_selected(hwnd: HWND) {
     refresh(hwnd);
 }
 
-/// Перетаскивание файлов в окно.
+/// Dragging files into the window.
 fn handle_drop(hwnd: HWND, hdrop: *mut c_void) {
     let files = win32::dropped_files(hdrop);
     if files.is_empty() {
@@ -707,7 +707,7 @@ fn handle_drop(hwnd: HWND, hdrop: *mut c_void) {
     refresh(hwnd);
 }
 
-/// Перерисовать список файлов и подсказку по состоянию очереди.
+/// Redraw the file list and the queue hint.
 fn refresh(hwnd: HWND) {
     let list = win32::child(hwnd, Id::List.raw());
     win32::list_clear(list);
@@ -715,7 +715,7 @@ fn refresh(hwnd: HWND) {
     if pointer.is_null() {
         return;
     }
-    // SAFETY: указатель валиден, пока окно живо; читаем только состояние очереди.
+    // SAFETY: the pointer is valid while the window is alive; we only read the queue state.
     let state = unsafe { &*pointer };
     for (index, entry) in state.queue.entries().iter().enumerate() {
         let name = entry
@@ -740,7 +740,7 @@ fn refresh(hwnd: HWND) {
     win32::set_text(hint, &hint_text(hwnd, state));
 }
 
-/// Имена настроек в реестре.
+/// Registry value names.
 const SETTINGS_NAMES: &[&str] = &[
     "out_dir",
     "units",
@@ -753,7 +753,7 @@ const SETTINGS_NAMES: &[&str] = &[
     "recursive",
 ];
 
-/// Прочитать параметры из полей окна.
+/// Read the parameters from the window fields.
 fn read_settings(hwnd: HWND) -> Settings {
     let text = |id: Id| win32::text_of(win32::child(hwnd, id.raw()));
     let check = |id: Id| win32::check_get(win32::child(hwnd, id.raw()));
@@ -773,7 +773,7 @@ fn read_settings(hwnd: HWND) -> Settings {
     }
 }
 
-/// Показать параметры в полях окна.
+/// Show the parameters in the window fields.
 fn apply_settings(hwnd: HWND, settings: &Settings) {
     win32::set_text(win32::child(hwnd, Id::OutDir.raw()), &settings.out_dir);
     win32::set_text(win32::child(hwnd, Id::Units.raw()), &settings.units);
@@ -792,34 +792,34 @@ fn apply_settings(hwnd: HWND, settings: &Settings) {
     win32::check_set(win32::child(hwnd, Id::RecursiveCheck.raw()), settings.recursive);
 }
 
-/// Прочитать настройки из `HKCU\Software\rcsconv\gui`.
+/// Read the settings from `HKCU\Software\rcsconv\gui`.
 fn load_settings() -> Settings {
     let values = win32::registry_load(SETTINGS_NAMES);
     Settings::from_pairs(values.iter().map(|(name, value)| (name.as_str(), value.as_str())))
 }
 
-/// Сохранить настройки в `HKCU\Software\rcsconv\gui`.
+/// Save the settings to `HKCU\Software\rcsconv\gui`.
 fn save_settings(hwnd: HWND) {
     let settings = read_settings(hwnd);
     win32::registry_save(&settings.to_pairs());
 }
 
-/// Подсказка: итог прогона, ошибки параметров или состояние очереди.
+/// Hint: run summary, parameter errors or queue state.
 fn hint_text(hwnd: HWND, state: &State) -> String {
     if let Some(summary) = &state.summary {
         return summary.clone();
     }
     match read_settings(hwnd).validate() {
         Ok(()) => model::queue_hint(&state.queue),
-        Err(message) => format!("Ошибка параметров: {message}"),
+        Err(message) => format!("Settings error: {message}"),
     }
 }
 
-/// Показать ошибку в модальном окне (используется до появления главного окна).
+/// Show an error in a modal box (used before the main window appears).
 fn show_error(text: &str) {
     let text = win32::wide(text);
     let caption = win32::wide("rcsconv-gui");
-    // SAFETY: обе строки живут до возврата из MessageBoxW.
+    // SAFETY: both strings live until MessageBoxW returns.
     unsafe {
         MessageBoxW(ptr::null_mut(), text.as_ptr(), caption.as_ptr(), MB_ICONERROR | MB_OK);
     }

@@ -1,9 +1,9 @@
-//! Октодерево фиксированной глубины: ячейки, глубина, счётчики уровней.
+//! Fixed-depth octree: cells, depth, per-level counters.
 //!
-//! Порт `tools/rcs_build.py` (`root_half`, `recap_depth`, `cell_of`,
-//! `subtree_key`, `choose_depth`, `level_counts`). ПОДТВЕРЖДЕНО
-//! (`docs/RCS-FORMAT.md` §4.3, §6): ReCap выбирает глубину так, чтобы ребро
-//! плитки было ≈ 2.25 м, а узлы обходит в DFS-порядке `x + 2y + 4z`.
+//! Port of `tools/rcs_build.py` (`root_half`, `recap_depth`, `cell_of`,
+//! `subtree_key`, `choose_depth`, `level_counts`). CONFIRMED
+//! (`docs/RCS-FORMAT.md` 4.3, 6): ReCap picks the depth so that the tile edge is
+//! about 2.25 m, and walks tiles in DFS order `x + 2y + 4z`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -13,10 +13,10 @@ use crate::error::{Error, Result};
 use crate::point::CloudPoint;
 use crate::{BASE_HALF, MAX_DEPTH, TILE_EDGE};
 
-/// Ячейка октодерева: индексы по осям на данной глубине.
+/// Octree cell: per-axis indices at the given depth.
 pub type Cell = [i64; 3];
 
-/// Полуширина корневого куба: `2.25·2^k`, минимальная покрывающая bbox.
+/// Half-width of the root cube: `2.25·2^k`, the smallest one covering the bbox.
 pub fn root_half(half_extent: [f64; 3]) -> f64 {
     let need = half_extent.iter().fold(0.0f64, |acc, value| acc.max(value.abs()));
     let mut half = BASE_HALF;
@@ -26,7 +26,7 @@ pub fn root_half(half_extent: [f64; 3]) -> f64 {
     half
 }
 
-/// Глубина, на которой ребро плитки равно 2.25 м (как выбирает ReCap).
+/// Depth at which the tile edge equals 2.25 m (the way ReCap chooses it).
 pub fn recap_depth(half: f64) -> u32 {
     let value = ((2.0 * half) / TILE_EDGE).log2();
     let rounded = num::round_half_even(value);
@@ -37,7 +37,7 @@ pub fn recap_depth(half: f64) -> u32 {
     }
 }
 
-/// Индекс ячейки на данной глубине (0…2^depth−1 по каждой оси).
+/// Cell index at the given depth (0..2^depth-1 on each axis).
 pub fn cell_of(local: [f64; 3], half: f64, depth: u32) -> Cell {
     let side = 1_i64 << depth;
     let edge = (2.0 * half) / side as f64;
@@ -50,7 +50,7 @@ pub fn cell_of(local: [f64; 3], half: f64, depth: u32) -> Cell {
     cell
 }
 
-/// Ключ DFS-порядка: индексы октантов от корня к листу (`x + 2y + 4z`).
+/// DFS order key: octant indices from root to leaf (`x + 2y + 4z`).
 pub fn subtree_key(cell: Cell, depth: u32) -> Vec<u8> {
     let mut key = Vec::with_capacity(depth as usize);
     for level in (1..=depth).rev() {
@@ -63,7 +63,7 @@ pub fn subtree_key(cell: Cell, depth: u32) -> Vec<u8> {
     key
 }
 
-/// Увеличивать глубину, пока в ячейке не больше `max_per_tile` точек.
+/// Increase the depth until no cell holds more than `max_per_tile` points.
 pub fn choose_depth(
     points: &[CloudPoint],
     center: [f64; 3],
@@ -95,10 +95,10 @@ pub fn choose_depth(
     Err(Error::DepthExceeded)
 }
 
-/// Число занятых узлов октодерева на каждом уровне `0…depth`.
+/// Number of occupied octree tiles on every level `0..=depth`.
 ///
-/// Родитель уровня `L` для листа `cell` — это `cell >> (depth − L)`; именно эти
-/// числа ReCap пишет в заголовок блока `type 1`.
+/// The parent of a leaf `cell` at level `L` is `cell >> (depth - L)`; these are
+/// the numbers ReCap writes into the `type 1` block header.
 pub fn level_counts(cells: &[Cell], depth: u32) -> Vec<u32> {
     if cells.is_empty() {
         return Vec::new();
@@ -139,14 +139,14 @@ mod tests {
         assert_eq!(cell_of([-2.25, -2.25, -2.25], 2.25, 1), [0, 0, 0]);
         assert_eq!(cell_of([2.24, 2.24, 2.24], 2.25, 1), [1, 1, 1]);
         assert_eq!(subtree_key([1, 0, 1], 1), vec![5]);
-        // depth 2, cell [0,1,1]: на уровне 2 октант 0 (старшие биты нули),
-        // на уровне 1 — x + 2y + 4z = 0 + 2 + 4 = 6.
+        // depth 2, cell [0,1,1]: octant 0 at level 2 (high bits are zero),
+        // x + 2y + 4z = 0 + 2 + 4 = 6 at level 1.
         assert_eq!(subtree_key([0, 1, 1], 2), vec![0, 6]);
     }
 
     #[test]
     fn level_counts_of_probe6() {
-        // probe6: три листа на глубине 1 → уровни [1, 3].
+        // probe6: three leaves at depth 1 -> levels [1, 3].
         assert_eq!(level_counts(&[[0, 0, 0], [1, 0, 0], [0, 1, 1]], 1), vec![1, 3]);
     }
 }

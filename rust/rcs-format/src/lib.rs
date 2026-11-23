@@ -1,21 +1,21 @@
-//! Контейнер Autodesk ReCap `.rcs` (сигнатура `ADOCT`) — слой формата.
+//! Autodesk ReCap `.rcs` container (signature `ADOCT`) — the format layer.
 //!
-//! Порт `tools/rcs_blocks.py`, `tools/rcs_points.py`, `tools/rcs_write.py`
-//! (эталон — Python-реализация; паритет проверяется побайтово, `docs/ROADMAP.md` R1).
+//! Port of `tools/rcs_blocks.py`, `tools/rcs_points.py`, `tools/rcs_write.py`
+//! (Python is the reference; parity is checked byte by byte, `docs/ROADMAP.md` R1).
 //!
-//! Подтверждено байтами эталонов (`docs/RCS-FORMAT.md`):
+//! Confirmed by the reference bytes (`docs/RCS-FORMAT.md`):
 //!
-//! * заголовок `0x000…0x135` — сигнатура, центр bbox, корневой куб, `chunk_version`,
-//!   `count`, `flags`, строка GUID `{8_4_4_4_12}` на `0xE3`, `blockCount` на `0x129`;
-//! * директория блоков на `0x135` — записи `(offset u64, size u64, type u64)`,
-//!   блоки стыкуются и заканчиваются ровно на EOF (выравнивания нет);
-//! * блок `type 3` — `u64 count` + `count × 368` записей узлов;
-//! * блок `type 11` — payload'ы узлов подряд, тело точки 16 байт (квантование по осям);
-//! * блок `type 1` — 128 байт заголовка (32 × u32) + записи по 72 байта;
-//! * блок `type 0` (экспорт) — TLV с версией схемы атрибутов.
+//! * header `0x000..0x135` — signature, bbox centre, root cube, `chunk_version`,
+//!   `count`, `flags`, GUID string `{8_4_4_4_12}` at `0xE3`, `blockCount` at `0x129`;
+//! * block directory at `0x135` — records `(offset u64, size u64, type u64)`,
+//!   blocks are contiguous and end exactly at EOF (no alignment);
+//! * block `type 3` — `u64 count` + `count × 368` tile records;
+//! * block `type 11` — tile payloads back to back, point body is 16 bytes (per-axis quantisation);
+//! * block `type 1` — 128-byte header (32 × u32) + 72-byte records;
+//! * block `type 0` (export) — TLV with the attribute schema version.
 //!
-//! Публичный API повторяет питоновский: `Container::parse` → `iter_tiles` →
-//! `decode_tile`; сборка — `writer::serialize`.
+//! The public API mirrors the Python one: `Container::parse` -> `iter_tiles` ->
+//! `decode_tile`; building goes through `writer::serialize`.
 
 #![forbid(unsafe_code)]
 
@@ -42,5 +42,5 @@ pub use point::Point;
 pub use tile::Tile;
 pub use tlv::Tlv;
 
-/// Сигнатура контейнера: `ADOCT` + три нуля.
+/// Container signature: `ADOCT` plus three zero bytes.
 pub const MAGIC: [u8; 8] = *b"ADOCT\0\0\0";

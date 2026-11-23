@@ -1,398 +1,204 @@
-# PLAN — реверс формата RCS (ADOCT / Autodesk ReCap)
+# PLAN — RCS format reverse engineering (ADOCT / Autodesk ReCap)
 
-## Передача (читать в первую очередь)
+## Handover (read this first)
 
-**Статус: проект закрыт по критериям приёмки.** Читатель и писатель готовы,
-спецификация выпущена, приёмка пройдена **в Revit 2023** (23.0.10.18 — единственный
-Revit на машине) на **9 реальных облаках** (0.3–4.0 млн точек): все файлы, собранные
-`pts2rcs`, открылись, размеры сверены линейкой — в метрах. На `probe6` файл
-воспроизводится до байта (кроме GUID и 2 байт интенсивности), на `level_7` блок
-`type 1` совпадает с эталоном ReCap байт-в-байт.
+**Status: the project is closed against the acceptance criteria.** The reader and
+writer are ready, the specification is published, and acceptance passed in **Revit
+2023** (23.0.10.18 — the only Revit on the machine) on **9 real clouds** (0.3–4.0
+million points): every file built by `pts2rcs` opened and the dimensions matched a
+ruler — in metres. On `probe6` the file is reproduced byte for byte (except the GUID
+and 2 intensity bytes); on `level_7` the `type 1` block matches the ReCap reference
+byte for byte.
 
-| Слой | Готово |
+| Layer | Done |
 |---|---|
-| Контейнер: заголовок, директория блоков, диалекты v2 (raw) / v5 (export) | ✅ |
-| Дерево узлов (`type 3`, запись 368 Б) | ✅ |
-| Тела точек (`type 11`, 16 Б) и заголовок payload'а узла | ✅ |
-| Метаданные (`type 1`) и свойства (`type 0`) — разобраны и генерируются | ✅ |
-| Чтение `rcs2pts`, round-trip через ReCap | ✅ |
-| Писатель `tools/rcs_write.py` + `tools/pts2rcs.py` | ✅ принято в Revit 2023 |
-| CLI (`cli_paths`), приёмка (`validate_pts`), корпус (`corpus_status`, `pts_subset`) | ✅ |
-| Импорт LAS/LAZ (`las2pts`, через `laspy`) | ✅ |
-| Проект `.rcp`: ZIP + XML, настройки импорта (`rcp_info`) | ✅ `docs/RCP-FORMAT.md` |
-| Корпус: `golden/` — ветки `.pts` и `.laz`, raw+export+reference | ✅ `docs/CORPUS.md` |
-| Спецификация + чек-лист для другой реализации | `docs/RCS-FORMAT.md` §9.1, Приложение C |
-| Тесты | 85 (`unittest`); без `golden/` часть классов скипается |
-| Целевой продукт: `rcsconv.exe` на Rust (GNU, `crt-static`) | ⏳ R0–R2, R4 сделаны; R3, R5 — `docs/ROADMAP.md` |
+| Container: header, block directory, dialect v2 (raw) / v5 (export) | yes |
+| Tile tree (`type 3`, 368-byte record) | yes |
+| Point bodies (`type 11`, 16 B) and the tile payload header | yes |
+| Metadata (`type 1`) and properties (`type 0`) — parsed and generated | yes |
+| Reading `rcs2pts`, round-trip through ReCap | yes |
+| Writer `tools/rcs_write.py` + `tools/pts2rcs.py` | yes, accepted in Revit 2023 |
+| CLI (`cli_paths`), acceptance (`validate_pts`), corpus (`corpus_status`, `pts_subset`) | yes |
+| LAS/LAZ import (`las2pts`, via `laspy`) | yes |
+| `.rcp` project: ZIP + XML, import settings (`rcp_info`) | yes, `docs/RCP-FORMAT.md` |
+| Corpus: `golden/` — `.pts` and `.laz` branches, raw+export+reference | yes, `docs/CORPUS.md` |
+| Specification + a checklist for another implementation | `docs/RCS-FORMAT.md` section 9.1, Appendix C |
+| Tests | 85 (`unittest`); without `golden/` some classes are skipped |
+| Target product: `rcsconv.exe` in Rust (GNU, `crt-static`) | R0–R2, R4 done; GUI G1–G4 done; R3, R5 — `docs/ROADMAP.md` |
 
-**Обязательных задач нет.** Открытые вопросы (`docs/RCS-FORMAT.md` §12) — «на
-понимание», на совместимость не влияют: смысл записей `kind 0…7`, поля записи узла
-`@96…` и `tail_u32`, смысл полей записи `type 1`, точный шаг децимации при экспорте
-(≈5 мм), `count` заголовка ≠ сумме по узлам, байты тела `[8]`/`[12]`/`[13]`.
-Формат `.rcp` разобран (`docs/RCP-FORMAT.md`). Ветка `.e57` **отложена** до
-появления корректного файла (`docs/CORPUS.md`, раздел «E57 — отложено»).
+**There are no mandatory tasks.** Open questions (`docs/RCS-FORMAT.md` section 12)
+are "for understanding" and do not affect compatibility: the meaning of `kind 0..7`
+records, tile record fields `@96...` and `tail_u32`, the meaning of `type 1` record
+fields, the exact decimation step on export (about 5 mm), header `count` versus the
+sum over tiles, body bytes `[8]`/`[12]`/`[13]`. The `.rcp` format is parsed
+(`docs/RCP-FORMAT.md`). The `.e57` branch is **deferred** until a valid file appears
+(`docs/CORPUS.md`, "E57 — deferred").
 
-**Чего не делать:** генерировать пробы и импортировать синтетические облака в ReCap
-(импортёр их отвергает без внятной причины, лог пуст — см. журнал);
-подгонять байты под ожидаемый размер; хардкодить куски дампа; менять `golden/**`;
-возвращать зависимость писателя от `.rcs`-шаблона.
+**What not to do:** generate probes and import synthetic clouds into ReCap (the
+importer rejects them without a clear reason, the log is empty — see the journal);
+fit bytes to an expected size; hard-code dump fragments; modify `golden/**`; bring
+back the writer's dependency on an `.rcs` template.
 
-**Порядок чтения:** `PLAN.md` → `.clinerules` → `docs/RCS-FORMAT.md` → `README.md`
-→ `tools/rcs_blocks.py`, `tools/rcs_points.py` → `tools/rcs_write.py`,
-`tools/pts2rcs.py` → `tools/tests/test_container.py`.
+**Reading order:** `PLAN.md` -> `.clinerules` -> `docs/RCS-FORMAT.md` -> `README.md`
+-> `tools/rcs_blocks.py`, `tools/rcs_points.py` -> `tools/rcs_write.py`,
+`tools/pts2rcs.py` -> `tools/tests/test_container.py`.
 
-**Диск и git:** в git — только наш код (`tools/`), документация и правила. Все данные
-(исходники `.laz`/`.pts`, проекты `.rcp`, эталоны `.rcs`, `reference/*_orig.rcs`)
-лежат локально в **`golden/`** и исключены `.gitignore`; там же `golden/MANIFEST.sha256`
-(SHA-256 всех данных) и `golden/README.md` (паспорт корпуса). Результаты прогонов —
-в `out/`, эксперименты — в `dumps/`. Эталонная версия ReCap — **2020 (6.0.0.110)**.
+**Disk and git:** only our code (`tools/`), the Rust port (`rust/`), documentation
+and rules are in git. All data (`.laz`/`.pts` sources, `.rcp` projects, `.rcs`
+references, `reference/*_orig.rcs`) lives locally in **`golden/`** and is excluded by
+`.gitignore`; there are also `golden/MANIFEST.sha256` (SHA-256 of all data) and
+`golden/README.md` (corpus passport). Run results go to `out/`, experiments to
+`dumps/`. The reference ReCap version is **2020 (6.0.0.110)**. The repository is
+English-only; the Russian mirror of this journal and the other documents is kept
+locally in `docs-rus/` (git-ignored).
 
-## Цель
+## Goal
 
-Обратимый **читатель + писатель** контейнера `.rcs` (ReCap 6.0.0.110), проверяемый
-инструментами Autodesk: ReCap открывает результат, Revit линкует облако,
-координаты/цвета совпадают с исходным `.pts`.
+A reversible **reader + writer** for the `.rcs` container (ReCap 6.0.0.110),
+verifiable with Autodesk tools: ReCap opens the result, Revit links the cloud, and
+coordinates/colours match the source `.pts`.
 
-**Не цель:** «конвертер любой ценой», подгонка размера, правка чужих файлов.
+**Not a goal:** "a converter at any cost", size fitting, editing third-party files.
 
-## Входные данные
+## Input data
 
-Всё лежит в **`golden/`** (в git не попадает, ~1.6 ГБ; см. `golden/README.md`):
+Everything lives in **`golden/`** (not in git, about 1.6 GB; see
+`golden/README.md`):
 
-| Файл | Что это | Как получить |
+| File | What it is | How to get it |
 |---|---|---|
-| `golden/<имя>.laz` | исходник из iPhone (Polycam), 10 облаков | съёмка / `las2pts` не нужен |
-| `golden/<имя>.pts` | текстовое представление: шапка-счётчик + 7 колонок | `tools/las2pts.py --precision 4` |
-| `golden/<имя>.rcp` | проект ReCap = ZIP (XML с настройками + превью) | ReCap 2020, `Import` (настройки — `docs/CORPUS.md`) |
-| `golden/<имя>.rcs` | экспорт Unified RCS (v5) — **эталон** | ReCap 2020, `Export → Unified RCS` |
-| `golden/<имя> Support/<имя>.rcs` | raw-диалект v2 (сразу после импорта) | создаёт ReCap сам |
-| `golden/probe6|test1|test2.pts` | 3 точки, 6 колонок, **без шапки** | ручные пробы (нужны тестам) |
-| `golden/probe6|test1|test2.rcs` | их экспорты (100 327 Б) + `Support` raw | ReCap 2020 |
-| `golden/lazimport/` | вторая ветка: импорт **напрямую из `.laz`** (2 облака) | ReCap 2020, `Import → .laz` |
-| `golden/reference/*_orig.rcs` | импорты 2026-10-29 (4 файла) | ReCap 2020; на них — побайтовое доказательство |
-| `golden/level_7_n19099.pts/.rcs` | подвыборка `level_7` (каждая 17-я точка) | `tools/pts_subset.py -n 20000` |
-| `golden/MANIFEST.sha256` | SHA-256 всех данных | перегенерируется по факту |
-| `ins.rvt` | Revit-модель — конечный потребитель | — (вне репозитория) |
+| `golden/<name>.laz` | iPhone (Polycam) source, 10 clouds | capture / no `las2pts` needed |
+| `golden/<name>.pts` | text representation: count header + 7 columns | `tools/las2pts.py --precision 4` |
+| `golden/<name>.rcp` | ReCap project = ZIP (XML with settings + preview) | ReCap 2020, `Import` (settings — `docs/CORPUS.md`) |
+| `golden/<name>.rcs` | Unified RCS export (v5) — **reference** | ReCap 2020, `Export -> Unified RCS` |
+| `golden/<name> Support/<name>.rcs` | raw dialect v2 (right after import) | created by ReCap itself |
+| `golden/probe6|test1|test2.pts` | 3 points, 6 columns, **no header** | manual probes (needed by tests) |
+| `golden/probe6|test1|test2.rcs` | their exports (100,327 B) + `Support` raw | ReCap 2020 |
+| `golden/lazimport/` | second branch: import **directly from `.laz`** (2 clouds) | ReCap 2020, `Import -> .laz` |
+| `golden/reference/*_orig.rcs` | imports of 2026-10-29 (4 files) | ReCap 2020; they carry the byte-level proof |
+| `golden/level_7_n19099.pts/.rcs` | `level_7` subsample (every 17th point) | `tools/pts_subset.py -n 20000` |
+| `golden/MANIFEST.sha256` | SHA-256 of all data | regenerated as needed |
+| `ins.rvt` | the Revit model — the end consumer | — (outside the repository) |
 
-`probe6/test1/test2` — ручные, поэтому качественно отличаются от корпуса: 6 колонок
-(нет канала интенсивности) и нет шапки-счётчика (`skipLines` в `.rcp` отсутствует).
-Это нормальные фикстуры, но «как ReCap обрабатывает интенсивность» по ним не изучить.
+`probe6/test1/test2` are manual, so they differ qualitatively from the corpus: 6
+columns (no intensity channel) and no count header (no `skipLines` in `.rcp`). They
+are valid fixtures, but "how ReCap handles intensity" cannot be studied with them.
 
-Внимание: `golden/level_7.rcs` (317 548 точек, 43 узла) снят с `Decimation 1 мм`;
-`golden/reference/level_7_orig.rcs` — импорт с другими настройками (316 890 точек,
-316 узлов). Пара для реверса — `golden/level_7.rcs`, см. §4 и `docs/CORPUS.md`.
+Note: `golden/level_7.rcs` (317,548 points, 43 tiles) was captured with
+`Decimation 1 mm`; `golden/reference/level_7_orig.rcs` is an import with different
+settings (316,890 points, 316 tiles). The pair for reverse engineering is
+`golden/level_7.rcs`, see section 4 and `docs/CORPUS.md`.
 
-## Фазы
+## Phases
 
-### Фаза 0 — гигиена + golden set  ✅
-- [x] зачистка каталога (72 файла старого подхода удалены, 9 эталонов сохранены)
-- [x] структура каталогов, git, манифест хэшей
-- [x] ReCap 2020: `data/pts/*.pts → golden/*.rcs` (probe6, test1, test2, level_7)
-- [x] выяснено: экспорт детерминирован (только GUID, 30 байт), импорт тоже (28 байт GUID)
-- **Приёмка:** для каждого эталона известна пара «.pts ↔ байты .rcs» — выполнено.
+### Phase 0 — hygiene + golden set  done
+- [x] directory clean-up (72 files of the old approach deleted, 9 reference files kept)
+- [x] directory structure, git, hash manifest
+- [x] ReCap 2020: `data/pts/*.pts -> golden/*.rcs` (probe6, test1, test2, level_7)
+- [x] learned: export is deterministic (only the GUID, 30 bytes), import too (28 GUID bytes)
+- **Acceptance:** for every reference file the pair ".pts <-> .rcs bytes" is known — done.
 
-### Фаза 1 — парсер контейнера  ✅
-- [x] `tools/rcs_inspect.py`: заголовок, директория блоков, TLV
-- [x] проверка инвариантов на всех 4 эталонах (8 тестов, все проходят)
-- **Приёмка:** блоки стыкуются и покрывают файл до последнего байта; bbox из
-  заголовка = bbox `.pts`; `count` = число точек на 3-точечных. — выполнено.
+### Phase 1 — container parser  done
+- [x] `tools/rcs_inspect.py`: header, block directory, TLV
+- [x] invariant check on all 4 reference files (8 tests, all pass)
+- **Acceptance:** blocks are contiguous and cover the file to the last byte; the
+  header bbox = the `.pts` bbox; `count` = the number of points on 3-point files.
 
-### Фаза 2 — дерево узлов (блок type 3)  ✅
-- [x] установлено: `u64 nodeCount` + `nodeCount × 368` байт
-- [x] раскладка записи: куб узла (0…48), реальный bbox точек (48…96, округлён до мм),
-      `count` (@100), `payload_size` (@104); сумма payload = размер блока type 11
-- [x] `TileInfo`/`iter_tiles`/`tile_payload` — границы данных каждого узла известны
-- [ ] поля `@96`, `@112`, `@116` и массивы `@120`, `@244` — не расшифрованы
-- **Приёмка:** объединение кубов ≈ bbox сцены; сумма payload = блок type 11 — выполнено.
+### Phase 2 — tile tree (type 3 block)  done
+- [x] established: `u64 nodeCount` + `nodeCount x 368` bytes
+- [x] record layout: tile cube (0..48), real point bbox (48..96, rounded to mm),
+      `count` (@100), `payload_size` (@104); the payload sum = the `type 11` block size
+- [x] `TileInfo`/`iter_tiles`/`tile_payload` — the data bounds of every tile are known
+- [ ] fields `@96`, `@112`, `@116` and arrays `@120`, `@244` — not decoded
+- **Acceptance:** the union of cubes is about the scene bbox; the payload sum = the
+  `type 11` block — done.
 
-### Фаза 3 — декодер точек (блок type 11)  ✅ (основное)
-- [x] тело точки 16 байт: x (1 мм), y (¼ мм), z (1/16 мм) от `cube_min`, цвет B, G, R
+### Phase 3 — point decoder (type 11 block)  done (core)
+- [x] 16-byte point body: x (1 mm), y (1/4 mm), z (1/16 mm) from `cube_min`, colour B, G, R
 - [x] `tools/rcs_points.py`: `decode_body`, `decode_tile`, `decode_all`
-- [x] `tools/rcs2pts.py`: экспорт в `.pts` (`level_7` — ~2 с)
-- [x] проверено: 9 одноточечных эталонов (координаты и цвета), `level_7` — bbox ±0.3 мм
-- [x] оба диалекта (v2 raw и v5 export) читаются одним кодом
-- [x] байт `[8]` тела точки — **интенсивность** (подтверждено пробой `attr_intensity`)
-- [x] заголовок payload'а узла — структура вскрыта: `4·count + 4·M` записей
-      `(u16 index, u8 length, u8 kind)`; `kind=8` — записи на точку (перестановка)
-- [ ] смысл записей `kind 0…7` и поля `index` — не расшифрованы; **для писателя не нужен**
-      (Revit принял файлы с заголовком только из `kind = 8`)
-- [ ] байты тела `[6:8]` и `[12:16]` — не расшифрованы (в эталонах нули)
-- [ ] расхождение count: 315 264 (узлы) против 315 270 (заголовок)
-- **Приёмка:** координаты ±1e-3 — выполнено; count — см. расхождение выше.
+- [x] `tools/rcs2pts.py`: export to `.pts` (`level_7` — about 2 s)
+- [x] verified: 9 single-point reference files (coordinates and colours), `level_7` —
+      bbox +/-0.3 mm
+- [x] both dialects (v2 raw and v5 export) are read by the same code
+- [x] body byte `[8]` is **intensity** (confirmed by the `attr_intensity` probe)
+- [x] the tile payload header is decoded: `4*count + 4*M` records
+      `(u16 index, u8 length, u8 kind)`; `kind=8` records are per point (a permutation)
+- [ ] the meaning of `kind 0..7` records and the `index` field is not decoded; **not
+      needed by the writer** (Revit accepted files whose header had only `kind = 8`)
+- [ ] body bytes `[6:8]` and `[12:16]` are not decoded (zero in the reference files)
+- [ ] count difference: 315,264 (tiles) versus 315,270 (header)
 
-### Фаза 4 — писатель  ✅ принято в Revit
-- [x] **структура заголовка payload'а узла** — вскрыта (`docs/RCS-FORMAT.md` §4.2)
-- [x] `tools/rcs_write.py`: read → write побайтово идентичен на 13 эталонах
-- [x] `pts2rcs` воспроизводит `golden/probe6.rcs` до байта (кроме GUID и 2 байт интенсивности)
-- [x] `type 1` и `type 0` разобраны и генерируются байт-в-байт
-- [x] писатель не требует `.rcs`-шаблона (`tools/rcs_write.build_file`)
-- [x] приёмка: Revit 2020 открыл 8 файлов, включая скан на 2.58 млн точек
-- **Приёмка:** критерии (а)–(д) — в `docs/RCS-FORMAT.md` §10. Осталось непроверенным:
-  открытие самим ReCap и линковка `ins.rvt`.
+### Phases 4-7 — writer, import branches, `.rcp`, acceptance  done
+- [x] `tools/rcs_write.py`: `read -> write` byte-identical on 13 reference files
+- [x] `tools/rcs_build.py`: the octree and assembly from scratch; `type 1` derived
+      from the tree (43 tiles, depth 3 on `level_7`)
+- [x] `tools/pts2rcs.py`: `.pts -> .rcs`; `probe6` byte for byte except GUID and 2
+      intensity bytes
+- [x] two import branches (`.pts`, `.laz`) and `reference/*_orig.rcs` — the writer's
+      byte proof
+- [x] `.rcp` parsed as ZIP + XML (`tools/rcp_info.py`, `docs/RCP-FORMAT.md`)
+- [x] acceptance in Revit 2023 on 9 real clouds; `type 1`/`type 0` byte-identical
+- [x] `.e57` closed for lack of a valid file (`docs/CORPUS.md`)
 
-### Фаза 5 — обвязка  ⏳
-- [x] `tools/rcs_inspect.py` (сводка + инварианты), `tools/rcs2pts.py` (экспорт)
-- [x] `tools/rcs_compare.py`, `tools/analyze_payload.py`, `tools/analyze_header.py`
-- [x] `tools/rcs_write.py` (сериализация), `tools/pts2rcs.py` (`.pts` → `.rcs`)
-- [x] `tools/analyze_type1.py` (блок метаданных: слова, `K`, сверка с октодеревом)
+### Rust port (R0-R4, G0-G4)  done
+- [x] R0: GNU toolchain, `rcsconv.exe` skeleton, static CRT
+- [x] R1: `rcs-format` — container, tiles, point bodies, `type 1`/`type 0`, writer
+- [x] R2/R4: `rcs-cloud` + `cloud-pts` + `cloud-las` — `.pts`/`.las`/`.laz` -> `.rcs`
+- [x] G0: `rcs-conv` (shared orchestration), progress/cancel, atomic write
+- [x] G1-G4: `rcsconv-gui.exe` on `windows-sys`: window, file queue, parameters,
+      background conversion; a GUI file equals a CLI file byte for byte
+- [ ] R3: reading `.rcs` in Rust (`rcs2pts`, `inspect`)
+- [ ] R5: final measurements and release
 
-### Фаза 7 — CLI и приёмка на реальных сканах  ✅
-- [x] CLI: вход — файл/каталог/маска (`tools/cli_paths.py`), имя выхода подставляется
-      само, `-f` для перезаписи, `-r` для подкаталогов, понятная ошибка направления
-- [x] `pts2rcs`: `-m` (по умолчанию `auto` = 65536 = предел `u16 index`); `rcs2pts`:
-      `-c` (шапка-счётчик), `-i`, `--stdout`, потоковая запись
-- [x] `tools/validate_pts.py` — приёмка пары (`.pts`, `.rcs`) одной командой;
-      пакетный режим `-g каталог_эталонов`
-- [x] `tools/pts_subset.py` — равномерная подвыборка `.pts` (каждая N-я точка,
-      шапка пересчитывается); сделана `probes/corpus/level_7_n19099.pts`
-- [x] `tools/corpus_status.py` — чек-лист корпуса: `.rcp`/`Support`/экспорт
-      (экспорт ищется и как `<имя>*.rcs`), `count` raw и export отдельно, узлы/глубина
-- [x] `tools/las2pts.py` — импорт LAS/LAZ через `laspy` (опциональная зависимость,
-      см. `.clinerules` п.10): 16-битные цвет/интенсивность → 8 бит (`auto`),
-      `--recenter`, `--units-scale`, `--no-color/--no-intensity`, `--no-header`
-- [x] `validate_pts`: `INFO` для счётчиков эталона (ReCap режет при экспорте),
-      `--strict` для наших файлов, санитарный отчёт по одиночному `.pts`
-- [x] 5 новых тестов (72 всего); на `level_7` при `auto` — 43 узла, глубина 3,
-      `type 1` байт-в-байт как в `golden/level_7`; реальный скан
-      `attic_south_ost` (1 086 140 точек) → 186 узлов, 21.91 МБ, `validate_pts -s` зелёный
-- [x] эталоны ReCap сняты для 5 реальных облаков (`corupus2`, `corupus3`), сверка
-      `validate_pts`: bbox/`type 1` в порядке; `count` эталона — `INFO` (ReCap режет
-      при экспорте); на малом облаке наш `type 1` совпал с эталоном байт-в-байт
-- **Приёмка:** Revit 2023 открыл **9 реальных облаков** (0.3–4.0 млн точек),
-  размеры сверены линейкой; `probe6_gen`, `level_7_gen`, `level_7_no_tpl`,
-  `attic_south_ost`, `level_7_n19099` ✅
-### Фаза 6 — `type 1` по спецификации  ✅
-- [x] вскрыт смысл слов заголовка `type 1`: `words[L]` = занятые узлы октодерева
-      на уровне `L`, `K = sum(words)` = полное число узлов (13 эталонов, оба диалекта)
-- [x] `tools/analyze_type1.py`: разбор, инварианты, сверка с `type 3`
-- [x] `build_metadata_block(words, records=None)`: `records` выводится из суммы слов,
-      рассогласование — ошибка; по умолчанию вырожденное `(1,)` + 1 запись (200 Б)
-- [x] `pts2rcs` пишет `type 1` из октодерева (`--metadata generated`, по умолчанию);
-      `--metadata minimal` — прежний вариант, `--metadata template` — из эталона
-- [x] 7 новых тестов (53 всего); `probe6.pts` без шаблона = `golden/probe6.rcs`
-      кроме 2 байт интенсивности
-- **Приёмка:** инварианты `rcs_inspect` проходят; в **Revit 2023** открыты
-  `probe6_gen.rcs`, `level_7_gen.rcs`, `level_7_no_tpl.rcs` — облако и габариты верны.
+### Phase E — English-only repository (this iteration)  done
+- [x] E0: `docs-rus/` isolated in `.gitignore`/`.clineignore`; the Russian originals of
+      all documents (`README.md`, `PLAN.md`, `.clinerules`, `docs/*`) were copied there
+      with a local `MANIFEST.sha256`
+- [x] E1: all user-facing Rust strings (GUI, CLI, errors, progress stages) translated to
+      English; tests updated; 71 Rust tests green
+- [x] E2: all Rust comments/rustdoc, `Cargo.toml`, `rust-toolchain.toml`,
+      `.cargo/config.toml`, `res/app.rc`, `build.rs` translated; the double-encoded
+      Cyrillic damage in `rust/Cargo.toml` and `rcsconv-gui/src/win32.rs` was repaired
+      and translated (0 Cyrillic characters left in `rust/`)
+- [x] E4: `README.md`, `.clinerules`, `docs/RCS-FORMAT.md`, `docs/RCP-FORMAT.md`,
+      `docs/CORPUS.md`, `docs/ROADMAP.md`, `docs/HANDOVER.md`, `docs/LESSONS.md`,
+      `docs/GIT.md`, `PLAN.md` rewritten in English; `docs/GUI.md`, `docs/RELEASE.md`,
+      `docs/REVIT-PLUGIN.md` added
+- [x] stale facts fixed: the toolchain lives in `C:\rust` (`CARGO_HOME=C:\rust\cargo-home`),
+      not `C:\mingw64\rust`; `panic = "unwind"` instead of `abort`; test counts 85/71;
+      GUI phases G1-G4 done
+- [ ] E3: the Python reference tools (`tools/`) still carry Russian comments, docstrings
+      and messages. The user-facing behaviour is unchanged; this is the remaining
+      translation task (planned next, it does not affect the release).
 
-### Фаза 8 — корпус в одной папке + формат `.rcp`  ✅
-- [x] все данные в `golden/`: 10 облаков (`.laz`/`.pts`/`.rcp`/`.rcs`/`Support`),
-      переснятые `probe6/test1/test2`, `golden/lazimport/` (импорт из `.laz`),
-      `golden/reference/*_orig.rcs`; `data/` удалён
-- [x] `golden/MANIFEST.sha256` (73 файла, 1606 МБ) + паспорт `golden/README.md`;
-      git инициализирован, `.gitignore` исключает `golden/`, `out/`, `dumps/`
-- [x] `tools/rcp_info.py`: `.rcp` = ZIP (3 записи) + XML; читаются `ProjectId`,
-      версия, `SaveInformation`, `NumPoints`, `HasRGB/HasNormals/HasIntensity`,
-      `ScanImportSettings` (`unitScale/skipLines/separator/TextImportColumn/
-      IntensityClip/density/upDirection`)
-- [x] `docs/RCP-FORMAT.md`; `docs/CORPUS.md` переписан под две ветки импорта;
-      обновлены `README.md`, `docs/HANDOVER.md`, `.clinerules`
-- [x] тесты: 79 (новые классы `CorpusTests` и `RcpInfoTests`); побайтовое
-      доказательство писателя перенесено на `reference/*_orig.rcs`, допустимые
-      ULP-интервалы описаны в `ulp_prone_offsets`
-- **Приёмка:** `validate_pts "golden/*.pts"` — 13 пар, расхождений 0;
-  `python -m unittest discover -s tools/tests` — 79 OK (3 скипа без фикстур).
+### Phase R5 — release (in progress)
+- [x] version 1.0.0 for every crate; `VERSIONINFO` is generated by `build.rs` into
+      `version.h` from `CARGO_PKG_VERSION_*` (checked: the GUI exe reports 1.0.0.0)
+- [x] `docs/RELEASE.md` checklist, `.github/workflows/release.yml` (tag `v*` -> zip with
+      both `.exe` files, `LICENSE`, `README.md`, `SHA256SUMS.txt`)
+- [x] release build, `cargo test --workspace` (71 passed), CLI/GUI smoke tests,
+      `probe6.pts -> out/probe6.rcs` = 100,327 bytes (reference size)
+- [ ] final measurements table and Revit acceptance run for the 1.0.0 binaries
 
-### Фаза 10 — `.las/.laz` → `.rcs`, конвертер разделён на слои  ✅
-- [x] `tools/cloud.py` (точка + протокол «источник точек»), `tools/pts_read.py`,
-      `tools/las_read.py`, `tools/rcs_build.py` (октодерево и сборка),
-      `tools/rcs_cli.py` (общие аргументы и цикл по файлам)
-- [x] `pts2rcs.py` стал тонким CLI; прежний API (`build_output`, `read_pts`,
-      `MAX_TILE_POINTS`) сохранён — 81 тест остались зелёными без правок
-- [x] `tools/las2rcs.py`: LAS/LAZ через laspy чанками (16-битные цвет/интенсивность
-      → 8 бит), `--units-scale`, `--recenter`, `--no-color/--no-intensity`,
-      `--color-scale/--intensity-scale`
-- [x] 4 новых теста (`Las2RcsTests`), всего 85
-- **Приёмка:** `las2rcs golden/level_7.laz -o out` → 324 680 точек, 43 узла,
-  глубина 3, ребро 2.25 м; блоки `type 1` и `type 0` — **байт-в-байт** как в
-  `golden/level_7.rcs` (тип 3 того же размера, но содержит все точки, а не
-  прореженные ReCap); `validate_pts -s` зелёный, bbox расходится на 0.3 мм.
-  Время — 19 с на 324 680 точек.
+## Journal
 
-### Фаза R0 — Rust: тулчейн и каркас `rcsconv.exe`  ✅
+Entries up to 2026-11-03 (in Russian) are preserved in `docs-rus/PLAN.md`. From the
+English-only phase onward the journal is kept here in English.
 
-- [x] `rustup` (без прав администратора) + `stable-x86_64-pc-windows-gnu`
-      (`rustc 1.99.1`, профиль `minimal`); линкер — MinGW из `C:\mingw64`
-      (WinLibs, gcc 16.2). **MSVC не используется.** Грабли: `rustup-init` с
-      `--default-host` не переключил дефолт, поэтому `channel = "stable"` в
-      `rust-toolchain.toml` развернулся в msvc и подтянул второй тулчейн —
-      исправлено явным триплетом `stable-x86_64-pc-windows-gnu` и
-      `rustup set default-host`; msvc-тулчейн удалён
-- [x] `rust/` — workspace: `Cargo.toml` (release: `lto = "fat"`,
-      `codegen-units = 1`, `strip = true`, `panic = "abort"`), `rust-toolchain.toml`,
-      `.cargo/config.toml` (`-C target-feature=+crt-static`), крейт `rcsconv`
-- [x] `rcsconv --version` / `--help`, разбор аргументов вынесен в `parse()` + 4 теста
-- **Приёмка:** `cargo build --release` → `rcsconv.exe` **268 288 Б** (0.27 МБ при
-  пороге 6 МБ); `objdump -p` — только `KERNEL32`/`ntdll`/UCRT
-  (`api-ms-win-crt-*`, входит в Windows 10+), без `libgcc_s_seh-1.dll`,
-  `libwinpthread-1.dll` и без MSVC-рантайма; `cargo test` — 4 passed
-- Каталог `rust/` закреплён в `.clinerules`: п.10 (Rust — целевой продукт, GNU,
-  без MSVC) и п.13 (код — `tools/` и `rust/`); `rust/target/` в `.gitignore`
-
-### Фаза R1 — крейт `rcs-format`: контейнер, узлы, тела точек, `type 1`, `type 0`  ✅
-
-- [x] `rust/rcs-format` (без внешних зависимостей): `header` (разбор/сборка,
-      GUID `{8_4_4_4_12}` на `0xE3`, `blockCount` @`0x129`), `directory`
-      (подбор начала на `0x135`, инвариант «блоки стыкуются и кончаются на EOF»,
-      диалект raw/export, JPEG-превью), `container` (срез без копирования,
-      производные величины), `tile` (`iter_tiles`, `tile_payload`,
-      `tile_block_bytes`), `point` (`decode_body`/`encode_body`/`decode_tile`,
-      подбор страйда 16/20 по bbox узла), `metadata` (`type 1`: слова по уровням,
-      `K = sum(words)`), `properties` + `tlv` (`type 0`), `writer`
-      (`serialize`, `build_file`, `default_blocks`, `diff_ranges`), `bytes`
-- [x] Координаты в `Point` — **локальные**; мировые = локальные + `header.center`,
-      как в `tools/rcs2pts.py` (нашёл на тесте: сравнение с `.pts` сначала не
-      сходилось ровно на центр bbox). Отражено в `Point::world` и в доке модуля
-- [x] 15 интеграционных тестов (`tests/parity.rs`) + 4 теста CLI (`rcsconv`)
-- **Приёмка:** `read → write` **побайтово** на 9 эталонах — `probe6`, `test1`,
-  `test2`, `level_7` (7.3 МБ) и `golden/reference/{probe6,test1,test2,level_7,raw_v134}_orig|v134.rcs`
-  (5 файлов); блок `type 3` `level_7` пересобирается байт-в-байт; тела точек
-  `probe6` кодируются обратно байт-в-байт; `type 1`: уровни `[1,3]` (`probe6`) и
-  `[1,8,13,43]` (`level_7`), `K = sum(words)`; блок свойств пересобирается в те
-  же 134 байта; точки `probe6` совпали с `probe6.pts` в пределах 1 мм
-- Тесты без данных (`golden/` нет в git) печатают «пропуск» и проходят — как
-  `SkipTest` в Python-версии
-- [x] CI: джоба `cargo` (Ubuntu) — `cargo test --workspace`; поэтому
-      `rust-toolchain.toml` больше не фиксирует windows-триплет (он ломал бы Linux),
-      а `+crt-static` перенесён в `[target.x86_64-pc-windows-gnu]`
-
-### Фаза R2 + R4 — октодерево и сборка: `.pts` → `.rcs`, `.las/.laz` → `.rcs`  ✅
-
-Порядок фаз изменён владельцем: **LAZ в приоритете** (съёмка идёт в `.laz`),
-поэтому R4 сделан вместе с R2; `.pts` остался вторым входом.
-
-- [x] `rust/rcs-cloud`: `CloudPoint`, `Bounds`, трейт `Source`, октодерево
-      (`root_half`, `recap_depth`, `cell_of`, `subtree_key`, `choose_depth`,
-      `level_counts`), сборка `build_from_points`/`build_from_source`, `Stats`,
-      GUID `{8_4_4_4_12}` без внешних зависимостей
-- [x] `rust/cloud-pts`: потоковый разбор `.pts` (3…7 колонок, шапка-счётчик,
-      `clamp8`) по правилам `tools/pts_read.py`
-- [x] `rust/cloud-las`: `.las/.laz` через крейт `las` 0.9 с фичей `laz`
-      (**чистый Rust, без DLL**); bbox и `count` — из заголовка LAS, максимумы
-      цвета/интенсивности — по всему файлу (как `laspy.chunk_iterator`);
-      `--units-scale`, `--recenter`, `--no-color/--no-intensity`,
-      `--color-scale/--intensity-scale`
-- [x] `rust/rcsconv`: CLI с подкомандами `las2rcs`/`pts2rcs` по правилам
-      `tools/rcs_cli.py` (файл/каталог/маска, `<имя>.rcs`, без `-f` не перезаписывает,
-      `-m`, `-r`, `-g`, сводка «итого»); 6 интеграционных тестов через процесс
-- [x] `rust/rcs-format`: `num.rs` — округление как в Python (половина к чётному);
-      `encode_body` приведён к эталонной схеме `rcs_build.encode_body`
-      (сначала `round(delta, 3)`, затем ×масштаб оси)
-- **Приёмка (паритет с Python, кроме GUID):** `level_7.laz` → 324 680 точек,
-  43 узла, глубина 3, ребро 2.250 м, `type 1 = 1/8/13/43 (65 записей)`; сравнение
-  с выходом `tools/las2rcs.py` — **807 → 28 байт**, все внутри строки GUID
-  (0xE3…0x109). `level_7.pts` — **29 байт**, все в GUID. `probe6.pts` — 29 байт,
-  все в GUID
-- **Найдено по ходу:** запись `type 1` у меня была сдвинута на 4 байта
-  (`u32 0` на 52 вместо 56) — 780 «тихих» различий; добавлен тест
-  «собранный `type 1` = эталонный блок» на `probe6` и `level_7`
-- **Скорость (release):** `level_7.pts` 0.7 с против 11.2 с у Python;
-  `level_7.laz` 0.7 с против 19 с; `.exe` **604 160 Б**, зависимости только
-  `KERNEL32`/`ntdll`/UCRT/`bcryptprimitives` — без `libgcc`, `libwinpthread`, MSVC
-
-## Пробы: направление закрыто (не повторять)
-
-Синтетические облака ReCap принимает нестабильно, лог пуст. Ниже — результат, чтобы
-не тратить на это сессии снова.
-
-| файл | точек | колонок | bbox | результат |
-|---|---|---|---|---|
-| `probe6/test1/test2` | 3 | 6 | объёмный / плоский | приняты |
-| `attr_intensity` | 6 | 7 (с интенсивностью) | плоский | принят |
-| `attr_nocolor` | 6 | 6, все цвета (0,0,0) | плоский | отказ |
-| `grid_00001` | 2 | 6 | объёмный | отказ (дважды) |
-| `grid_00005` | 6 | 6 | объёмный | отказ |
-
-Гипотезы «плоский bbox» и «<3 точек» **опровергнуты**. Полезный выход один:
-`golden/attr_intensity_import1.rcs` (6 точек с интенсивностью) — на нём подтверждён
-байт `[8]` и детерминизм импорта.
-
-Генератор и наборы (`tools/make_grid_probes.py`, `tools/make_probes.py`) на месте;
-каталоги `probes/` при чистке репозитория удалены — пробы генерируются командой
-`python tools/make_grid_probes.py`. **Использовать их не нужно**: дескриптор вскрыт
-оффлайн по эталонам.
-
-Инструменты, которые пригодятся в новой задаче:
-
-```powershell
-python tools/analyze_payload.py golden/level_7.rcs --hex   # N, payload, «лишние» байты, группы заголовка
-python tools/rcs_compare.py A.rcs B.rcs                    # сравнение двух файлов (в т.ч. «только GUID?»)
-```
-
-## Журнал
-
-| Дата | Что сделано | Что выяснено |
-|---|---|---|
-| 2026-10-27 | зачистка каталога, структура, git, парсер контейнера | директория блоков на `0x135` из 4 записей `(offset,size,type)` точно замощает файл; type 3 = `u64 count` + `count×368`; type 11 = точки (60 Б на 3 точки, 22.7 Б/точка); type 0 = TLV с π-константами |
-| 2026-10-27 | Фаза 1 закрыта: `rcs_inspect.py`, 8 unittest | корневой куб задан в локальной системе (`center` — смещение/проектный origin), а не вокруг bbox; в type 0 по смещениям 69/85/101/117 лежат `±π`, `±π/2`; хвост type 0 не укладывается в `(id,size,payload)` — открытый вопрос |
-| 2026-10-29 | владелец сгенерировал `golden/*.rcs` (ReCap **2020**, 6.0.0.110); Фаза 2 закрыта: `iter_tiles`/`tile_payload`, 15 unittest | экспорт **детерминирован**: golden и reference расходятся только в GUID (30 байт); запись узла: куб (0…48), реальный bbox точек (48…96, округлён до 1 мм), `count` @100, `payload_size` @104 (сумма = размер type 11 точно); ReCap отбрасывает ≈2.9 % точек при импорте (315 270 из 324 680); поля @96/@112/@116 и массивы @120/@244 не расшифрованы |
-| 2026-10-29 | Фаза 3 закрыта: `rcs_points.py`, `rcs2pts.py`, 18 unittest | тело точки 16 Б: x (1 мм), y (¼ мм), z (1/16 мм) от `cube_min`, цвет B, G, R; `level_7` декодируется за ~2 с |
-| 2026-10-29 | второй диалект: `Support/*.rcs` (v2, `type 5` = TLV, `type 0` = JPEG-превью, bbox без округления); парсер и 23 теста | raw-файл `level_7` хранит 324 643 в заголовке, а узлы — 319 487 (5 156 точек не попадают в октодерево; причины проверены и отвергнуты); сгенерированы 18 grid-проб для вскрытия чанкового payload'а |
-| 2026-10-30 | Фаза 7 (часть 3): `las2pts`, поиск эталона по маске, `INFO`/`--strict`, санитарный отчёт; 5 новых тестов (72 всего) | `tools/las2pts.py` — тонкая обёртка над **laspy** (отклонение от правила «stdlib+numpy» зафиксировано в `.clinerules` п.10: LAZ без декомпрессора не читается); наша логика — только формат `.pts`: 16-битные цвет/интенсивность → 8 бит (`auto`: max>255 → ÷257, иначе 1), `--no-color/--no-intensity/--no-header`, `--recenter`, `--units-scale`, `--precision`, потоковое чтение чанками. Проверено на `level_7.laz` (LAS 1.2, формат 2): `.pts` совпал с исходным сканом построчно в первой точке. `corpus_status`: эталон ищется как `<имя>.rcs`, иначе единственный `<имя>*.rcs`, печатает `count` raw и export отдельно. `validate_pts`: счётчики эталона — `INFO` (ReCap режет при экспорте), `--strict` для наших файлов, режим «только `.pts`» — санитарный отчёт (шапка/bbox/цвет/интенсивность, подозрение на градусы/футы). Факты: `attic_south_ost` — импорт −285, export −83 890 (−7.7 %), 39 узлов, макс. 66 745/узел (> 65 536: ReCap повторяет `u16 index`); `type 1` = (1,8,15,39), K=63 — гипотеза держится на 1 млн точек |
-| 2026-10-30 | прогон писателя по корпусу + `type 1` малого облака = эталон байт-в-байт | `pts2rcs` (`auto`) на реальных сканах: `attic_south_ost` 1 086 140 → 186 узлов, глубина 4, макс. 17 726/узел, 21.91 МБ, `validate_pts -s` — все проверки пройдены (count = все точки, bbox точный); `level_7_n19099` 19 099 → 42 узла, 0.50 МБ, проверки пройдены. Ключевое: у `level_7_n19099` наш `type 1` (слова `(1, 8, 13, 42)`) **байт-в-байт равен эталонному** ReCap, хотя эталон прорежен на 11 точек — прореживание влияет только на `count`/bbox крайних точек, не на структуру |
-| 2026-10-30 | причина потерь ReCap найдена: `Decimation grid`; второй набор `corupus3`; bbox эталона — мягкая проверка | Найдено в настройках импорта: `Advanced → Decimation grid`. Набор `corupus2` (5 мм) vs `corupus3` (1 мм), одинаковые облака: `attic_south_ost` тел в узлах raw 1 038 923 → 1 074 066, export 1 002 250 → 1 021 979 (−7.7 % → −5.9 %); `roof_1_stairwell` 2 919 256 → 3 075 832, export 2 765 134 → 2 845 656 (−11.7 % → −9.1 %). `count` заголовка raw от decimation **не зависит** (1 085 855 / 3 129 017 в обоих). Остаток — прореживание самого экспорта Unified (эффективно ≈5.7 мм), настройкой не отключается. ОПРОВЕРГНУТО: «экспорт удаляет одинаковые тела в узле» (уникальных тел 1 073 337 при export 1 021 979) и «фильтр по фиксированной сетке» (5 мм → 1 025 328). `validate_pts`: для эталонов bbox-допуск 1 см → `INFO` («эталон ReCap прорежен»), `--strict` оставляет 1 мм; тест на 2 мм/20 мм. 73 теста |
-
-| 2026-10-30 | потери ReCap при экспорте: закономерность на трёх облаках | `level_7` 324 680 → 315 270 (−2.9 %); `attic_south_ost` 1 086 140 → 1 002 250 (−7.7 %); `attic_south_west` 3 953 680 → **3 072 718 (−22.3 %)**. Импорт при этом теряет единицы: raw `count` 1 085 855 и 3 950 433 (−285 и −3 247). Квантование не объясняет (уникальных ячеек 1 мм — 1 083 621 из 1 086 140). В узлах ReCap: 66 745 и **192 402** точки при ровно 65 536 уникальных `index` (0…65535, повтор 2.9×) — подтверждает, что `index` записи `kind 8` не идентификатор точки. Гипотеза: прореживание по плотности при экспорте |
-
-
-| 2026-10-29 | пробы: импортирован `attr_intensity` (первые данные). `tools/analyze_payload.py`, `rcs2pts --intensity`, 25 тестов | байт `[8]` тела точки = **интенсивность** (0/40/80/120/160/255 совпали); round-trip `pts → ReCap → rcs → pts` точный; заголовок payload'а у узла с N точками содержит по 4-байтовой записи на точку (`index:08`) + служебную часть, структура которой зависит от содержимого — ждём серию `grid_*` |
-| 2026-10-29 | `rcs_compare.py`; генератор проб исправлен (балласт `(5,3,7)`, `single_origin` убран), 16 проб перегенерированы, все габариты трёхмерные | **импорт детерминирован**: два независимых импорта `attr_intensity` различаются 28 байтами, все внутри GUID; ReCap отклоняет плоские облака (две нулевые оси) **без интенсивности** — это ограничение импортёра, не формата |
-| 2026-10-29 | пробы через ReCap прекращены: отклонены `grid_00001` (2 точки), `grid_00005` (6 точек, 6 колонок), `attr_nocolor`; приняты только `attr_intensity` (7 колонок) и прежние probe6/test1/test2 | причина отказов не установлена, лог ReCap пуст; гипотезы «плоский bbox» и «<3 точек» опровергнуты. Решено вскрывать дескриптор payload'а оффлайн по 43 узлам `level_7` |
-| 2026-10-29 | `tools/analyze_header.py`, +5 тестов (30 всего); структура заголовка payload'а | заголовок = `4·(N+M)` записей `(u16 index, u8 length, u8 kind)`; `length` кратен 8, `kind ∈ 0…8`; `kind = 8` — ровно `N` записей, `index` — перестановка `0…N−1` (97 узлов, N до 25 385); минимальный заголовок 4 Б. Отвергнуто: `index` = номер тела, связь `M` с `tail_u32`, «пробеги тел». Смысл `kind 0…7` — открыт |
-| 2026-10-30 | Фаза 7 (часть 2): подвыборка, чек-лист корпуса, пакетная сверка; 4 новых теста (67 всего) | `tools/pts_subset.py` — равномерная подвыборка `.pts` (`-n`/`--stride`, шапка пересчитывается по фактическому числу, строки пишутся как есть); сделана `probes/corpus/level_7_n19099.pts` (19 099 из 324 680, каждая 17-я, 0.67 МБ). `tools/corpus_status.py` — чек-лист корпуса (`.rcp` / `Support/*.rcs` / экспорт, `count` эталона против числа точек, узлы/глубина/макс. узел); сразу показал по `level_7`: 315 270 против 324 680 (−9 410, −2.9 %), тогда как probe6/test1/test2 дают 0. `validate_pts -g каталог` — пакетная сверка. Найденный факт: реальный скан `attic_south_ost` (1 086 140) при `auto` даёт 186 узлов, глубину 4, макс. 17 726/узел, 21.91 МБ, все проверки `validate_pts` пройдены, Revit 2023 открыл. Паспорт корпуса — `docs/CORPUS.md` |
-
-| 2026-10-29 | `tools/rcs_write.py` + `tools/pts2rcs.py`, 35 тестов | `read → write` побайтово идентичен на 13 эталонах; заголовок разобран до конца (`@0x129 blockCount`, `@0x12D = 2`, директория `0x135`, первый блок `0x1812D`, резерв нулями); правило корневого куба `R = 2.25·2^k`, ребро плитки 2.25 м, порядок узлов — обход октодерева; координата квантуется после округления до 1 мм; `pts2rcs` воспроизводит `golden/probe6.rcs` до байта, кроме GUID и байта интенсивности |
-| 2026-10-29 | GUID: случайный по умолчанию, `--guid` с валидацией и нормализацией; 40 тестов | `rcs_write` сохраняет GUID (round-trip), `pts2rcs` генерирует `uuid4` в формате `{8_4_4_4_12}`; дефисы нормализуются в подчёркивания, мусор отбивается до чтения `.pts`. Исправлена ошибка в `RCS-FORMAT §1`: `chunk_id = 131` у **всех** golden-файлов, `11` только у `level_7_orig` |
-
-| 2026-10-29 | разобраны `type 1` и `type 0`, 44 теста | `type 1` = 128 Б (32×u32) + K одинаковых записей по 72 Б (`±DBL_MAX`); `type 0` (экспорт) = 134 Б: `u32 10` + TLV `100/101/102/201…206/301` (π-константы, заглушки `∓999999`); оба блока воспроизводятся байт-в-байт на 6 эталонах; в `pts2rcs` появился `--metadata generated` (минимальный `type 1`); смысл слов заголовка и `K` — открыт |
-
-| 2026-10-29 | шаблон убран: `build_file`, все блоки генерируются; 46 тестов | `pts2rcs.py` собирает файл без `.rcs`-шаблона: `type 3`/`type 11` из точек, `type 1`/`type 0` из генераторов, поля заголовка — константы (`chunk_id=131`, `flags=01 01 00`, блоки `[3,1,11,0]`). `--template` остался только для побайтового воспроизведения эталона (`--metadata template`) |
-
-| 2026-10-29 | **приёмка в Revit 2020**: 8 файлов, собранных `pts2rcs`, открылись и показали корректное облако; спецификация переписана целиком (`docs/RCS-FORMAT.md`, 13 разделов + 2 приложения); критерий приёмки в `.clinerules` переведён на Revit | подтверждено: заголовок payload'а узла можно писать только записями `kind = 8` (324 680 и 2 580 040 точек); содержимое `type 1` для Revit не критично (шаблон не нужен); `type 1` = 128 Б + K×72 Б, `type 0` = 134 Б — оба воспроизводятся байт-в-байт. Не проверено: открытие самим ReCap, линковка `ins.rvt` |
-
-| 2026-10-30 | Фаза 7 (часть 1): CLI, `auto`-предел, `validate_pts`, 10 новых тестов (63 всего) | `tools/cli_paths.py`: вход — файл/каталог/маска, имя выхода подставляется само (`<имя>.rcs`/`<имя>.pts`), `-f` для перезаписи, `-r`, `-o`, понятная ошибка при перепутанном направлении. `pts2rcs -m` по умолчанию `auto` = **65536** — предел формата (`index` записи заголовка payload'а — `u16`, проверено `struct.pack`), дерево дробится только по необходимости: на `level_7` это 43 узла, глубина 3 и `type 1` **байт-в-байт как в `golden/level_7`** (при `-m 200` было 10 394 узла); предупреждение, если узел > 25 385 (максимум в эталонах ReCap). `rcs2pts`: `-c` (шапка-счётчик Leica), `-i`, `--stdout`, потоковая запись по узлам. `tools/validate_pts.py`: count/bbox/`type 1`/предел узла одной командой. Приёмка после фазы 6: Revit **2023** (23.0.10.18) открыл `probe6_gen`, `level_7_gen`, `level_7_no_tpl`; Revit 2020 на машине нет — `.clinerules` п.6 и §10 приведены в соответствие. Найдены реальные сканы (`output_tests/test_4`, 9 файлов, ~16.9 млн точек): `.pts` с шапкой-счётчиком и 7 колонками, интенсивность = 0; `read_pts` их читает (шапка = число строк на 4 проверенных файлах). Эталоны ReCap для них ещё не сняты |
-
-| 2026-10-30 | Фаза 6: вскрыт `type 1`, 7 новых тестов (53 всего) | `words[L]` блока `type 1` = число **занятых узлов октодерева на уровне `L`**, `K = sum(words)` = полное число узлов, включая внутренние (13 эталонов, оба диалекта; `probe6` (1,3)/4, `level_7` (1,8,13,43)/65, `level_7_orig` (1,8,17,64,316)/406). Проверка: листья `type 3` проецируются вверх (`cell >> (depth−L)`). Писатель выводит блок из октодерева: `build_metadata_block(words)` с `records = sum(words)`; `probe6.pts` без шаблона = `golden/probe6.rcs`, кроме 2 байт интенсивности. Новый `tools/analyze_type1.py`. Открыто: смысл полей самих записей (всегда идентичны). Приёмка в Revit после фазы 6 не повторялась |
-
-
-| 2026-11-02 | Фаза 8: реорганизация данных + `.rcp` | Всё сырьё и эталоны переехали в `golden/` (в git не входит): 10 облаков из iPhone (`.laz`/`.pts`/`.rcp`/`.rcs`/`Support`), переснятые `probe6/test1/test2`, вторая ветка `golden/lazimport/` (импорт напрямую из `.laz`), `golden/reference/*_orig.rcs` (импорты 2026-10-29, хеши совпали с манифестом). `data/` удалён, `MANIFEST.sha256` перегенерирован (73 файла, 1606 МБ), git инициализирован, выбросы — в `out/`. Тесты: 79 OK (3 скипа без фикстур `attr_intensity`) |
-
-| 2026-11-02 | `.rcp` разобран: это ZIP | `.rcp` = ZIP из 3 записей (`<guid>.jpg`, `<guid>.xml`, `rs_screenshot__.bmp` 15 491 022 Б); точек внутри нет — XML ссылается на `Support/<имя>.rcs`. В XML — `ScanImportSettings`: `unitScale/skipLines/separator/TextImportColumn`, `IntensityClip max`, **`density` = Decimation grid в мм** (нет атрибута = 1 мм). Этим объяснены старые числа: `density="5"` → 19 088 точек, без него → 19 093. `NumPoints` = сколько точек принял импорт. Новые: `tools/rcp_info.py`, `docs/RCP-FORMAT.md`, 6 тестов |
-
-| 2026-11-03 | `.e57` отложен; `chunk_version` уточнён; 2 теста (81 всего) | Попытка ветки `.e57` остановлена: файлы libe57.org (InteliSum) и экспорт CloudCompare 2.14.beta (`E57Format-3.4.1`) содержат **повреждённый XML** (3–9 вставок мусорных байт в имена тегов, `xmlPhysicalLength` на 9 байт меньше факта); ReCap 2020 их не импортирует — причина в файле, а не в ReCap. Практический путь: `e57 → CloudCompare → .laz → las2rcs`. Побочно: `chunk_version` (@0xD4) зависит от пути импорта — `(131,2)` raw из `.pts`, `(11,1)` raw из `.laz`, `(131,134)` «нетекстовый» импорт, `(131,5)` экспорт; инвариант стал наблюдением (`KNOWN_CHUNK_VERSIONS`, `ChunkVersionTests`), свидетель сохранён как `golden/reference/raw_v134.rcs` |
-
-| 2026-11-03 | Фаза 10: `.las/.laz` → `.rcs`, конвертер разделён на слои; 4 теста (85) | `cloud.py` (точка + источник), `pts_read.py`, `las_read.py`, `rcs_build.py` (октодерево/сборка, о формате входа не знает), `rcs_cli.py` (аргументы и цикл); `pts2rcs` — тонкий CLI, прежний API сохранён (81 тест без правок). `las2rcs`: LAS/LAZ чанками через laspy, 16-битные цвет/интенсивность → 8 бит, `--units-scale/--recenter`. На `level_7.laz`: 324 680 точек → 43 узла, глубина 3, `type 1 = (1,8,13,43)` и `type 0` **байт-в-байт** как у ReCap; 19 с на файл |
-
-| 2026-11-02 | уточнение байта интенсивности и цвета | Цвет (`[9:12]`, BGR) копируется **дословно**: 100 % точек эталонов в палитре источника, в обеих ветках (`.pts` и `.laz`). Байт `[8]` — канал раскраски: `.pts` с нулевой интенсивностью → 255 у всех; `.laz` (`HasIntensity=0`) → линейный градиент по высоте (corr с z = 1.000); без колонки → мусор. ОПРОВЕРГНУТО «`[12:16]` всегда 0»: у корпуса `[12]` = 0…255, `[13]` = 0…4. ULP: два импорта одного `.pts` дают разный младший бит double в `center`/`half`, поэтому побайтовое доказательство перенесено на `reference/*_orig.rcs` |
-| 2026-11-03 | Rust-first: R0 (тулчейн) + документы, 4 Rust-теста | Роли зафиксированы: **Python — эталон/оракул и среда исследования, Rust — целевой продукт**; оптимизация numpy снята с критического пути. Поставлен `rustup` без прав администратора: `stable-x86_64-pc-windows-gnu` (rustc 1.99.1, minimal), линкер — MinGW `C:\mingw64` (gcc 16.2), MSVC не используется. Учебная грабля: `rustup-init --default-host` не сменил дефолт → `channel = "stable"` развернулся в msvc и rustup подтянул второй тулчейн; лечится явным триплетом в `rust-toolchain.toml` + `rustup set default-host` (msvc удалён). Каркас `rust/`: workspace + крейт `rcsconv`, release-профиль (`lto=fat`, `cgu=1`, `strip`, `panic=abort`), `.cargo/config.toml` с `+crt-static`. Приёмка R0: `rcsconv.exe` **268 288 Б**, зависимости только `KERNEL32`/`ntdll`/UCRT (без `libgcc`/`libwinpthread`/MSVC-рантайма), `--version`/`--help`/код 2 на неизвестный аргумент, `cargo test` 4 passed; Python-тесты — 85 OK (3 скипа). Документы: новый `docs/LESSONS.md` (пост-мортем 2025: вывод, 7 ошибок, почему казалось «закрытой дверью», что сработало, что зафиксировано) со ссылками из README и §13; `docs/ROADMAP.md` переписан под Rust-first (цель `.exe`, критерии ≤6 МБ / ≤30 с на 4 млн / побайтовый паритет, обоснование Rust vs C, фазы R0–R5); HANDOVER и README обновлены. CI остаётся Ubuntu-only (Python 3.11/3.12), джоба `cargo test` — после R1 |
-| 2026-11-03 | `.clinerules` приведены в соответствие с Rust-first | Правила больше не противоречат структуре: п.10 — Python объявлен **эталоном и средой исследования**, целевой продукт — Rust (`rust/`, `stable-x86_64-pc-windows-gnu`, `+crt-static`, MSVC не используется, `cargo test`), паритет с Python — побайтово на эталонах; п.13 — код разрешён в `tools/` (Python) и `rust/` (workspace `rcsconv`, `rust/target/` в `.gitignore`). Смысл остальных пунктов не менялся (правка только про технологии и размещение кода) |
-| 2026-11-03 | Фаза R1: крейт `rcs-format` (контейнер, узлы, точки, `type 1`/`type 0`, писатель); 19 Rust-тестов | Порт Python-слоя формата на Rust без внешних зависимостей: `header`, `directory` (подбор директории на `0x135` по инварианту покрытия EOF, диалекты raw/export, JPEG-превью), `container` (срез без копирования + производные величины), `tile` (записи 368 Б, сборка блока байт-в-байт), `point` (тело 16 Б, подбор страйда 16/20 по bbox узла, обратное кодирование), `metadata` (`type 1`: уровни, `K = sum(words)`), `properties`+`tlv` (`type 0`, 134 Б), `writer` (`serialize`/`build_file`/`default_blocks`/`diff_ranges`). **Приёмка:** `read → write` побайтово на 9 эталонах (`probe6`, `test1`, `test2`, `level_7` 7,3 МБ + 5 файлов `golden/reference/`); `type 3` `level_7` пересобирается байт-в-байт; тела точек `probe6` кодируются обратно байт-в-байт; `type 1` уровни `[1,3]`/`[1,8,13,43]`; блок свойств = те же 134 байта; точки `probe6` = `probe6.pts` в пределах 1 мм. **Выяснено:** координаты в файле локальные (от `cube_min`), мировые = локальные + `header.center` — тест на `.pts` сначала расходился ровно на центр bbox, это зафиксировано в `Point::world`; порядок точек в контейнере — обход октодерева, а не порядок строк `.pts` (сверять по совпадению, не по индексу). Тесты без `golden/` печатают «пропуск» и проходят, как `SkipTest`. CI: добавлена джоба `cargo` (Ubuntu, без данных), из-за неё `rust-toolchain.toml` больше не фиксирует windows-триплет, а `+crt-static` перенесён в `[target.x86_64-pc-windows-gnu]` (проверено: exe по-прежнему 268 288 Б, без `libgcc`/`libwinpthread`) |
-| 2026-11-03 | Фаза R2 + R4: `.las/.laz` и `.pts` → `.rcs` в Rust; 42 Rust-теста | По решению владельца приоритет отдан LAZ, поэтому R4 сделан вместе с R2. Новые крейты: `rcs-cloud` (точка/bbox/трейт `Source`, октодерево, сборка, `Stats`, GUID без зависимостей), `cloud-pts` (`.pts` по правилам `pts_read.py`), `cloud-las` (крейт `las` 0.9 + фича `laz` — **чистый Rust, без DLL**; bbox и `count` из заголовка LAS, максимумы цвета/интенсивности по всему файлу, `--units-scale/--recenter/--*-scale`), CLI с подкомандами `las2rcs`/`pts2rcs` (файл/каталог/маска, `<имя>.rcs`, `-f`, `-m`, `-r`, `-g`, «итого»). В `rcs-format` добавлен `num.rs` — округление как в Python (половина к чётному), `encode_body` приведён к схеме `rcs_build.encode_body`. **Паритет с Python (кроме GUID):** `level_7.laz` — 807 → **28 байт** различий, все в строке GUID; `level_7.pts` — 29 байт, все в GUID; `probe6.pts` — 29 байт, все в GUID; структура: 324 680 точек, 43 узла, глубина 3, `type 1 = 1/8/13/43`. **Найдено:** запись `type 1` была сдвинута на 4 байта (`u32 0` на 52 вместо 56) — 780 тихих различий; добавлен тест «собранный `type 1` = эталонный блок». **Скорость (release):** `.pts` 0.7 с против 11.2 с у Python, `.laz` 0.7 с против 19 с; `.exe` 604 160 Б, без `libgcc`/`libwinpthread`/MSVC. Тесты: 42 (5 cloud-pts, 5 rcs-cloud, 2 num, 16 паритет rcs-format, 8 CLI-юниты, 6 интеграционных) |
-| 2026-11-03 (после Шага C) | G0: оркестрация вынесена в крейт `rcs-conv`, в библиотеках — прогресс и отмена; 53 Rust-теста | Подготовка GUI (`docs/ROADMAP.md` R6): GUI-бинарник не может переиспользовать код бинарного крейта, поэтому `Options`/`parse`/`expand_sources`/`convert_one`/`describe` переехали из `rcsconv/src/cli.rs` в новый крейт **`rcs-conv`** (`options.rs`, `files.rs`, `convert.rs`), а `rcsconv` стал тонким слоем (разбор → `validate` → `build_options` → обход входов → печать); тексты и коды выхода не менялись. **Прогресс/отмена:** `rcs-cloud::progress` — `Stage::{Read,Octree,Tiles,Write}`, трейт `Progress` (`stage(done,total)`, `cancelled()`), `NoProgress`; `Source::bounds_with`/`points_with` (по умолчанию вызывают старые `bounds`/`points`, поэтому паритетные тесты не тронуты), `build_from_source_with`/`build_from_points_with`, `Error::Cancelled`. `cloud-las`: `bounds()` теперь читает **только заголовок**, точки — пакетами `read_points_into(1<<16)` вместо `read_all_points_into` (те же точки в том же порядке); `cloud-pts`: отчёт по байтам каждые 65 536 строк. **Атомарная запись:** `rcs-conv::write_atomic` пишет `<имя>.rcs.tmp<pid>` и переименовывает — отмена и падение не оставляют обрезанный `.rcs` (есть тест). **Проверки:** 53 теста (было 42: +5 options, +4 files, +5 convert), `cargo test --workspace --offline` → EXIT=0; паритет CLI не изменился: `level_7.laz` — 31 байт различий с прежним бинарником и 27 с Python, `probe6.pts` — 31 байт, **все внутри `0xE4…0x107` (GUID)**. `rcsconv.exe` 604 672 → **610 816 Б** (+6 144: новый код + паник-локации крейта `rcs-conv`) |
-| 2026-11-03 | Шаг C: тулчейн Rust перенесён портативно, `rustup` удалён, профиль чист | Причина: `rustup` ставился без прав и жил в профиле (`.rustup` 839 МБ + `.cargo` 38 МБ), а тулчейн нужен рядом с WinLibs. **Перенос:** `robocopy` папки тулчейна → `C:\mingw64\rust` (205 файлов, 838.59 МБ; вместе с `rustc_driver-737f10a507f50706.dll`, `std-f903e3d16df36da5.dll`, `libgcc_s_seh-1.dll`, `libwinpthread-1.dll` — `rustc.exe` самодостаточен, `rustc --print sysroot` = `C:\mingw64\rust`), кеш (`registry` + `.global-cache` + lock-файлы, 24.2 МБ) → `C:\mingw64\rust\cargo-home`. **Переменные:** машинный `PATH` 1152 → 1172 (`C:\mingw64\rust\bin` сразу после `C:\mingw64\bin\`), машинный `CARGO_HOME=C:\mingw64\rust\cargo-home`; из пользовательского `PATH` убран `C:\Users\Jean\.cargo\bin` (1049 → 1024, тип `REG_EXPAND_SZ` сохранён, прочие записи не тронуты). **Проверки до удаления:** 42 теста офлайн; сборка **с нуля** в отдельном `CARGO_TARGET_DIR` офлайн (`EXIT=0`) — сеть не нужна; `objdump` — те же зависимости (UCRT/`KERNEL32`/`ntdll`), без `libgcc`/`libwinpthread`/MSVC. **Удаление:** `.rustup` → переименована, `.cargo` держал handle utility-процесс VS Code на `.cargo\bin` (`handle64`, иначе `Access denied` даже с правами администратора) — поэтому содержимое перенесено в `C:\mingw64\rust-rollback` (877 МБ, откат = обратный `Move-Item`; **резерв удалён 2026-11-03** — после перезапуска VS Code проверено: `where cargo` → `C:\mingw64\rust\bin\cargo.exe`, `sysroot` = `C:\mingw64\rust`, `cargo test --offline` EXIT=0 / 42 теста, поэтому откат больше невозможен), пустой `.cargo` удалился штатно; в профиле `.rustup`/`.cargo` больше нет. **Факт по размеру exe:** 604 160 → **604 672 Б** (+512); причина единственная — паник-локации вкомпилируют путь `…\registry\src\…`, теперь это `C:\mingw64\rust\cargo-home` вместо `C:\Users\Jean\.cargo` (строк ровно столько же, 1599/1599; `.rdata` +96 Б, `.reloc` +12 Б). Паритет с Python на новом бинарнике: `level_7.laz` — 27…29 байт, все в GUID. **Документы:** README — раздел «Тулчейн: портативная установка, без `rustup`» (+ обновление распаковкой архива поверх), `docs/ROADMAP.md` §3 и строка R0, `.clinerules` п.10, комментарий в `rust/rust-toolchain.toml` (без `rustup` файл инертен, в CI работает) |
-| 2026-11-03 | G1: каркас `rcsconv-gui.exe` на Win32; манифест comctl32 v6 + DPI, `panic = "unwind"`; 57 тестов | Новый крейт `rust/rcsconv-gui` — отдельный бинарник `rcsconv-gui.exe` (подсистема `windows`, без окна консоли) рядом с консольным `rcsconv.exe`; оба линкуют одни и те же крейты. Зависимость — **`windows-sys 0.61.2`** (`.crate` 2.52 МБ скачан в `C:\mingw64\rust\cargo-home`, кеш 24.22 → 44.43 МБ; после этого `cargo build --offline` работает), фичи: `Foundation`, `Graphics_Gdi`, `System_LibraryLoader`, `UI_Controls`, `UI_HiDpi`, `UI_Shell`, `UI_WindowsAndMessaging`. Модули: `model.rs` (чистая логика — id контролов, `scale(px,dpi)`, `layout()`; 4 теста, работают и на Linux), `win32.rs` (единственное место с `unsafe`: `wide()`, `instance()`, `enable_dpi_awareness()`, `client_size()`, `create_child()`, `move_child()`; каждый вызов с `SAFETY:`), `app.rs` (регистрация класса, окно 960×640, `STATIC`+`BUTTON`, `WM_SIZE`/`WM_DPICHANGED`/`WM_COMMAND`/`WM_DESTROY`, цикл сообщений), `main.rs` (`windows_subsystem`, `deny(unsafe_op_in_unsafe_fn)`, заглушка для не-Windows). Ресурсы: `res/app.rc` + `res/app.manifest` компилируются `windres` (`build.rs`, только GNU-таргет) — `RT_MANIFEST` id 1 (PerMonitorV2, comctl32 6.0, UTF-8, supportedOS Win10) и `VERSIONINFO`. **Профиль:** `panic = "abort"` → **`unwind`** (решение владельца: worker GUI ловит панику через `catch_unwind` и показывает окно ошибки). **Проверка exe:** `rcsconv-gui.exe` **264 192 Б**, `Subsystem = Windows GUI`, зависимости только `KERNEL32`/`user32`/`ntdll`/UCRT (`api-ms-win-crt-*`), без `gdi32`/`libgcc`/`libwinpthread`/MSVC; запуск → окно с заголовком «rcsconv — конвертер ReCap .rcs», `CloseMainWindow` → код выхода 0. Предупреждение линковщика `.rsrc merge failure: multiple non-default manifests` объяснено: в exe два манифеста (наш и встроенный CRT), но `FindResource(1, RT_MANIFEST)` отдаёт **наш** (1491 Б, `PerMonitorV2`), т.е. Windows берёт его; утилита проверки — `out/diag/pe_resources.py`. `rcsconv.exe` с `unwind`: 610 816 → **624 128 Б** (+13 312). Тесты: 57 (было 53; +4 `model`), `cargo test --workspace --offline` → EXIT=0 |
-| 2026-11-03 | G2: очередь файлов в GUI — диалоги, drag & drop, `SysListView32`; 63 теста | `model.rs`: `Queue`/`Entry`/`EntryStatus`, `COLUMNS` (Файл/Папка/Размер/Состояние), `Layout` + `MIN_SIZE_96`, `parse_open_file_buffer` (разбор буфера `GetOpenFileNameW`, чистая функция), `format_size`, `queue_hint`; 10 тестов модели (идут и на Linux). `win32.rs`: `init_common_controls`, `create_child_ex`, `set_text`, `accept_dropped_files`/`dropped_files` (`DragAcceptFiles` + `DragQueryFileW` + `DragFinish`), `open_files` (`GetOpenFileNameW`, `OFN_ALLOWMULTISELECT|OFN_EXPLORER|…`), `browse_folder` (`SHBrowseForFolderW` + `SHGetPathFromIDListW` + `CoTaskMemFree`), `list_init`/`list_add_row`/`list_clear`/`list_selected` (`LVM_*` через `SendMessageW`). `app.rs`: состояние окна в `GWLP_USERDATA` (`Box<State>` — освобождается в `WM_DESTROY`), кнопки «Добавить файлы…/Добавить папку…/Убрать/Очистить/Закрыть», `WM_DROPFILES`, `WM_GETMINMAXINFO` (минимальный размер), `refresh()` перерисовывает список и подсказку. Добавлены фичи `windows-sys`: `Win32_System_Com`, `Win32_UI_Controls_Dialogs`, `Win32_UI_Shell_Common`. Дубликаты в очереди отсекаются по каноническому пути — тем же правилом, что в `rcs-conv::expand_sources`, поэтому набор файлов совпадает с CLI. **Проверки:** 63 теста (+10 в GUI, всего `cargo test --workspace --offline` → EXIT=0); smoke-скрипт `out/diag/gui_smoke.ps1` показывает у живого окна детей `Static×2, SysListView32, SysHeader32, Button×5`, `LVM_GETITEMCOUNT=0`, `HDM_GETITEMCOUNT=4`, закрытие с кодом 0. `rcsconv-gui.exe` 264 192 → **355 840 Б** |
-| 2026-11-03 | G3: параметры конвертации в GUI и сохранение в реестр; 68 тестов | Новый модуль `params.rs` (чистый, без Win32): `Settings` (папка вывода, масштаб, центрирование, предел точек, GUID, цвет, интенсивность, «перезаписывать», «с подкаталогами»), `RecenterChoice`, `to_options()` (собирает `rcs_conv::Options` **тем же путём, что CLI**), `validate()`, `to_pairs()`/`from_pairs()` для реестра; 5 тестов, среди них «состояние GUI == `Options::parse` для эквивалентной командной строки» (все поля, включая `--no-color` и `-r`) и round-trip настроек. `rcs-conv` реэкспортирует `LasOptions`/`Recenter`/`ScaleMode`, чтобы GUI зависел от одного крейта. Интерфейс: 5 подписей, 4 поля `EDIT`, `COMBOBOX` (центрирование), 4 флажка `BS_AUTOCHECKBOX`, кнопка «Обзор…» (`SHBrowseForFolderW`); любое изменение параметра пересчитывает подсказку, и ошибка ввода видна сразу («Ошибка параметров: -m 70000 вне 1…65536»). Сохранение — `HKCU\Software\rcsconv\gui` (9 значений `REG_SZ`) при закрытии окна, чтение — при старте; проверено `reg query` после закрытия. Раскладка переработана (4 строки параметров над кнопками), `MIN_SIZE_96` 660×480, `WM_GETMINMAXINFO` держит минимум. Фичи `windows-sys`: +`Win32_System_Registry`, +`Win32_Security`. Smoke-скрипт у живого окна видит `Static×7, SysListView32, SysHeader32, Edit×4, ComboBox×1, Button×10`, 4 колонки, выход 0. Тесты: 68 (было 63; +5 `params`), `cargo test --workspace --offline` → EXIT=0. `rcsconv-gui.exe` 355 840 → **394 752 Б** |
-| 2026-11-03 | G4: конвертация в GUI — фоновый поток, прогресс-бар, отмена, «Открыть папку»; 71 тест | Новый модуль `job.rs`: `Shared` (реализует `rcs_conv::Progress` — этап/сделано/всего, `AtomicBool` отмены, результаты под `Mutex`), `run_jobs()` (то, что исполняет поток: `Settings` → `Options` → `convert_one` по очереди), `spawn()` с `catch_unwind` (паника в worker'е не уносит окно) и тесты: 2 файла `.pts` → оба записаны; отмена до старта → ни одного файла; **`gui_and_cli_produce_identical_bytes`** — на `golden/level_7.laz` с фиксированным GUID файл из GUI-пути **побайтово равен** файлу из CLI-пути (`Options::parse`). `app.rs`: состояние `State { queue, job, applied, summary }`, общая кнопка «Конвертировать/Отмена», `WM_TIMER` (120 мс) обновляет `msctls_progress32` и колонку «Состояние» через `LVM_SETITEMTEXTW` (без перерисовки всего списка), по завершении — `KillTimer`, `join`, итог в подсказке («Готово: записано N, пропущено N, ошибок N»); `WM_DESTROY` отменяет и присоединяет поток; «Открыть папку» — `ShellExecuteW` (`open`). Раскладка: +полоса прогресса и ряд «Конвертировать / Открыть папку», `MIN_SIZE_96` = 900×480. **Проверки:** 71 тест (+3 `job`), `cargo test --workspace --offline` → EXIT=0; smoke-скрипт видит `Static×7, SysListView32, SysHeader32, Edit×4, ComboBox, Button×12, msctls_progress32`, 4 колонки, закрытие с кодом 0. `rcsconv-gui.exe` 394 752 → **676 352 Б** |
-
-
-
-
-
-
-
-
-
-**Уточнение к записи про детерминизм импорта:** сравнение `golden/attr_intensity_import1.rcs`
-и `golden/probes2/probes2 Support/attr_intensity.rcs` даёт 102 различающихся байта,
-потому что у файлов **разный origin** (`center` = `(2.5,0,0)` против `(2.5,1.5,3.5)`),
-т.е. это импорты с разными настройками, а не два импорта одного входа. Запись
-«28 байт GUID» относится к другой паре — при следующей сверке указать пару явно.
-
-## Риски
-
-| Риск | Снятие |
-|---|---|
-| type 11 — адаптивное/энтропийное сжатие, реверс затянется | начать с writer «простейшего валидного» потока; параллельно ReCap SDK (write) как fallback |
-| привязка к версии 6.0.0.110 | фиксировать версию; проверять на другой сборке, если появится |
-| `count` ≠ число точек | проверить уже в Фазе 1 на 4 файлах (3/3/3/316890) |
-| юридические ограничения | реверс ради интероперабельности; ReCap SDK — только по лицензии |
+- **E0** — `docs-rus/` contains byte-identical Russian copies of `README.md`,
+  `PLAN.md`, `.clinerules` and all `docs/*` files; its SHA-256 manifest is local.
+  `.gitignore` and `.clineignore` exclude the folder.
+- **E1** — Rust strings: GUI labels/hints/messages, `Stage::title`,
+  `EntryStatus::label`, `RecenterChoice::label`, `describe()`, all `Display` errors of
+  `rcs-format`/`rcs-cloud`/`cloud-pts`/`cloud-las`, CLI reports. Message separators
+  use ASCII only for console safety. `cargo test --workspace`: 71 passed.
+- **E2** — comments/rustdoc translated across the workspace. Two files had
+  double-encoded Cyrillic (`rust/Cargo.toml`, `rcsconv-gui/src/win32.rs`); the text
+  was decoded back and translated. Cyrillic search in `rust/` returns nothing; tests
+  still 71 passed.
+- **E4** — documentation rewritten in English. `RCS-FORMAT.md` keeps every confirmed
+  fact, table and number; the prose is tightened. `README.md` describes the Rust
+  product first, the GUI second and the Python reference third.
+- **Not done in this iteration** — E3 (Python tool translation). Deferred on purpose:
+  the release path (Rust + GUI + docs) has priority; the Python tools stay the frozen
+  oracle. Tracked as an open item above and in `docs/ROADMAP.md`.

@@ -1,49 +1,50 @@
-//! Заголовок файла (`0x000 … 0x135`).
+//! File header (`0x000 .. 0x135`).
 //!
-//! ПОДТВЕРЖДЕНО (`docs/RCS-FORMAT.md` §2): `0x10` — центр bbox (а не первая точка),
-//! `0x08` — не число точек, `count` лежит на `0xD8`, `blockCount` — на `0x129`.
-//! ГИПОТЕЗА: смысл `word4/word8/word12`, `chunk_id`, `flags` не расшифрован,
-//! но они переносятся как есть, поэтому round-trip побайтовый.
+//! CONFIRMED (`docs/RCS-FORMAT.md` 2): `0x10` is the bbox centre (not the first
+//! point), `0x08` is not the point count, `count` lives at `0xD8`, `blockCount`
+//! at `0x129`.
+//! HYPOTHESIS: the meaning of `word4/word8/word12`, `chunk_id` and `flags` is not
+//! decoded, but they are carried over as is, so the round-trip is byte exact.
 
 use crate::bytes;
 use crate::error::{Error, Result};
 use crate::MAGIC;
 
-/// Начало строки GUID в эталонах.
+/// Start of the GUID string in the reference files.
 pub const GUID_OFFSET: usize = 0xE3;
-/// Длина строки GUID `{8_4_4_4_12}`.
+/// Length of the GUID string `{8_4_4_4_12}`.
 pub const GUID_LEN: usize = 38;
-/// Начало директории блоков (заголовок кончается здесь).
+/// Start of the block directory (the header ends here).
 pub const HEADER_END: usize = 0x135;
-/// Смещение `blockCount` (u32).
+/// Offset of `blockCount` (u32).
 pub const BLOCK_COUNT_OFFSET: usize = 0x129;
-/// `u32` на `0x12D`: во всех эталонах `2`.
+/// `u32` at `0x12D`: `2` in every reference file.
 pub const HEADER_WORD_0X12D: u32 = 2;
-/// Окно поиска GUID после `0xE0`.
+/// GUID search window after `0xE0`.
 const GUID_SEARCH_WINDOW: usize = 0x80;
-/// Минимальный размер буфера, при котором заголовок вообще читается.
+/// Smallest buffer size at which the header can be read at all.
 const MIN_HEADER_BYTES: usize = 0x120;
 
-/// Разобранный заголовок файла.
+/// Parsed file header.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Header {
-    /// `0x04`: во всех эталонах `84`.
+    /// `0x04`: `84` in every reference file.
     pub word4: u32,
-    /// `0x08`: во всех эталонах `3` (НЕ число точек).
+    /// `0x08`: `3` in every reference file (NOT the point count).
     pub word8: u32,
-    /// `0x0C`: во всех эталонах `2`.
+    /// `0x0C`: `2` in every reference file.
     pub word12: u32,
-    /// `0x10` — центр bbox.
+    /// `0x10` — bbox centre.
     pub center: [f64; 3],
-    /// `0x28` — нули.
+    /// `0x28` — zeros.
     pub zeros28: [f64; 3],
-    /// `0x40` — единицы.
+    /// `0x40` — ones.
     pub unit: [f64; 3],
-    /// `0x58` — повтор центра.
+    /// `0x58` — repeated centre.
     pub center2: [f64; 3],
-    /// `0x70` — `-R` корневого куба.
+    /// `0x70` — `-R` of the root cube.
     pub root_min: [f64; 3],
-    /// `0x88` — `+R` корневого куба.
+    /// `0x88` — `+R` of the root cube.
     pub root_max: [f64; 3],
     /// `0xA0` — `-(hx, hy, hz)`.
     pub extent_min: [f64; 3],
@@ -51,25 +52,25 @@ pub struct Header {
     pub extent_max: [f64; 3],
     /// `0xD0`.
     pub chunk_id: u32,
-    /// `0xD4` = 5 в экспорте, 2/1/134 в raw.
+    /// `0xD4` = 5 in exports, 2/1/134 in raw.
     pub chunk_version: u32,
-    /// `0xD8` — число точек (подтверждено на эталонах).
+    /// `0xD8` — point count (confirmed on the reference files).
     pub count: u64,
     /// `0xE0..0xE3` = `01 01 00`.
     pub flags: [u8; 3],
-    /// Строка GUID вместе с фигурными скобками.
+    /// GUID string including the braces.
     pub guid: String,
-    /// Фактическое смещение строки GUID.
+    /// Actual offset of the GUID string.
     pub guid_offset: usize,
 }
 
 impl Header {
-    /// Конец строки GUID.
+    /// End of the GUID string.
     pub fn guid_end(&self) -> usize {
         self.guid_offset + self.guid.len()
     }
 
-    /// Разобрать заголовок из начала файла.
+    /// Parse the header from the start of the file.
     pub fn parse(data: &[u8]) -> Result<Header> {
         if data.len() < MIN_HEADER_BYTES {
             return Err(Error::TooShort { size: data.len(), need: MIN_HEADER_BYTES });
@@ -102,10 +103,10 @@ impl Header {
         })
     }
 
-    /// Собрать первые `HEADER_END` байт файла.
+    /// Compose the first `HEADER_END` bytes of the file.
     ///
-    /// `guid` — строка GUID (`None` — сохранить исходную), `block_count` — число
-    /// записей директории.
+    /// `guid` is the GUID string (`None` keeps the original one), `block_count`
+    /// is the number of directory records.
     pub fn to_bytes(&self, guid: Option<&str>, block_count: usize) -> Result<Vec<u8>> {
         if self.guid_offset != GUID_OFFSET {
             return Err(Error::GuidOffset(self.guid_offset));
@@ -142,7 +143,7 @@ impl Header {
     }
 }
 
-/// Найти строку GUID: она хранится без префикса длины, в окне после `0xE0`.
+/// Find the GUID string: it is stored without a length prefix, in the window after `0xE0`.
 fn read_guid(data: &[u8], search_from: usize) -> Result<(String, usize)> {
     let limit = data.len().min(search_from + GUID_SEARCH_WINDOW);
     let start = data
@@ -159,9 +160,9 @@ fn read_guid(data: &[u8], search_from: usize) -> Result<(String, usize)> {
     Ok((text.to_string(), start))
 }
 
-/// Проверить GUID и привести к виду ReCap: подчёркивания, нижний регистр.
+/// Validate the GUID and convert it to the ReCap form: underscores, lower case.
 ///
-/// Принимаются и дефисы (привычный вид uuid4), на выходе всегда подчёркивания.
+/// Hyphens (the usual uuid4 form) are accepted too; the output always uses underscores.
 pub fn normalize_guid(text: &str) -> Result<String> {
     let value = text.trim();
     let body = value

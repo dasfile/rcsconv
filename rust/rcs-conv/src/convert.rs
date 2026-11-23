@@ -1,4 +1,4 @@
-//! Конвертация одного файла: сборка `.rcs`, атомарная запись, результат.
+//! Converting one file: build the `.rcs`, write it atomically, report the result.
 
 use std::path::{Path, PathBuf};
 
@@ -8,80 +8,80 @@ use rcs_cloud::{build_from_source_with, BuildOptions, Error, Stats};
 use crate::files::default_target;
 use crate::options::Options;
 
-/// Чем закончилась конвертация одного файла.
+/// How the conversion of one file ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
-    /// Файл собран и записан.
+    /// The file was built and written.
     Written,
-    /// Файл уже есть, а `force` не задан.
+    /// The file already exists and `force` is not set.
     Skipped,
-    /// Ошибка чтения, сборки или записи.
+    /// Read, build or write error.
     Failed,
-    /// Пользователь отменил операцию ([`Progress::cancelled`]).
+    /// The user cancelled the operation ([`Progress::cancelled`]).
     Cancelled,
 }
 
-/// Ошибка конвертации: к какому пути относится и что именно случилось.
+/// Conversion error: which path it concerns and what exactly happened.
 #[derive(Debug, Clone)]
 pub struct Failure {
-    /// Путь, о котором сообщается (вход, каталог вывода или результат).
+    /// The path being reported (input, output directory or result).
     pub subject: PathBuf,
-    /// Текст ошибки без префикса.
+    /// Error text without the prefix.
     pub message: String,
 }
 
 impl Failure {
-    /// Строка для журнала: `путь: ОШИБКА: текст`.
+    /// Log line: `path: ERROR: text`.
     pub fn line(&self) -> String {
-        format!("{}: ОШИБКА: {}", self.subject.display(), self.message)
+        format!("{}: ERROR: {}", self.subject.display(), self.message)
     }
 }
 
-/// Результат конвертации одного файла.
+/// Result of converting one file.
 #[derive(Debug, Clone)]
 pub struct Conversion {
-    /// Входной файл.
+    /// Input file.
     pub source: PathBuf,
-    /// Куда писали (или писали бы).
+    /// Where it was written (or would have been).
     pub target: PathBuf,
-    /// Итог.
+    /// Outcome.
     pub status: Status,
-    /// Статистика сборки (только при [`Status::Written`]).
+    /// Build statistics (only for [`Status::Written`]).
     pub stats: Option<Stats>,
-    /// Ошибка (только при [`Status::Failed`]).
+    /// Error (only for [`Status::Failed`]).
     pub failure: Option<Failure>,
 }
 
 impl Conversion {
-    /// Строка для журнала — совпадает с выводом CLI.
+    /// Log line — matches the CLI output.
     pub fn message(&self) -> String {
         match self.status {
             Status::Written => match &self.stats {
                 Some(stats) => describe(&self.source, &self.target, stats),
-                None => format!("{} → {}: записано", self.source.display(), self.target.display()),
+                None => format!("{} -> {}: written", self.source.display(), self.target.display()),
             },
             Status::Skipped => format!(
-                "{} → {}: пропущено (файл есть, нужен -f)",
+                "{} -> {}: skipped (file exists, -f required)",
                 self.source.display(),
                 self.target.display()
             ),
             Status::Failed => match &self.failure {
                 Some(failure) => failure.line(),
-                None => format!("{}: ОШИБКА: неизвестная причина", self.source.display()),
+                None => format!("{}: ERROR: unknown cause", self.source.display()),
             },
-            Status::Cancelled => format!("{}: отменено", self.source.display()),
+            Status::Cancelled => format!("{}: cancelled", self.source.display()),
         }
     }
 
-    /// Записан ли файл.
+    /// Whether the file was written.
     pub fn is_written(&self) -> bool {
         self.status == Status::Written
     }
 }
 
-/// Сконвертировать один файл.
+/// Convert one file.
 ///
-/// `las` выбирает источник: `true` — LAS/LAZ, `false` — `.pts`.
+/// `las` selects the source: `true` — LAS/LAZ, `false` — `.pts`.
 pub fn convert_one(
     source: &Path,
     options: &Options,
@@ -151,17 +151,17 @@ pub fn convert_one(
     result
 }
 
-/// Строка отчёта — тот же формат, что в Python-эталоне.
+/// Report line — the same format as in the Python reference.
 pub fn describe(source: &Path, target: &Path, stats: &Stats) -> String {
     let words = if stats.metadata_words.is_empty() {
         String::new()
     } else {
         let joined: Vec<String> = stats.metadata_words.iter().map(u32::to_string).collect();
-        format!("generated {} ({} записей)", joined.join("/"), stats.metadata_records)
+        format!("generated {} ({} records)", joined.join("/"), stats.metadata_records)
     };
     format!(
-        "{} → {}: точек {}, узлов {} (глубина {}, ребро {:.3} м), макс. {}/узел, \
-         {:.2} МБ, type 1: {}",
+        "{} -> {}: {} points, {} tiles (depth {}, edge {:.3} m), max {}/tile, \
+         {:.2} MB, type 1: {}",
         source.display(),
         target.display(),
         stats.points,
@@ -174,10 +174,10 @@ pub fn describe(source: &Path, target: &Path, stats: &Stats) -> String {
     )
 }
 
-/// Записать файл атомарно: сначала `<имя>.rcs.tmp<pid>`, потом переименование.
+/// Write the file atomically: first `<name>.rcs.tmp<pid>`, then rename.
 ///
-/// Так отмена и падение не оставляют после себя обрезанный `.rcs`: на месте
-/// результата либо готовый файл, либо ничего.
+/// This way a cancellation or a crash never leaves a truncated `.rcs`: the
+/// result path holds either a complete file or nothing.
 pub fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let temp = temp_path(target);
     if let Err(err) = std::fs::write(&temp, bytes) {
@@ -199,7 +199,7 @@ pub fn write_atomic(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
 }
 
-/// Временное имя рядом с результатом (в том же каталоге — иначе `rename` не атомарен).
+/// Temporary name next to the result (same directory, otherwise `rename` is not atomic).
 fn temp_path(target: &Path) -> PathBuf {
     let mut name = target
         .file_name()
@@ -221,7 +221,7 @@ mod tests {
 
     use rcs_cloud::progress::{NoProgress, Progress, Stage};
 
-    /// Прогресс, который запоминает этапы и умеет «нажать Отмена».
+    /// Progress that records stages and can press Cancel.
     #[derive(Default)]
     struct Recorder {
         cancel: AtomicBool,
@@ -244,7 +244,7 @@ mod tests {
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("rcs-conv-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("временный каталог");
+        std::fs::create_dir_all(&dir).expect("temporary directory");
         dir
     }
 
@@ -260,17 +260,17 @@ mod tests {
     fn writes_atomically_and_leaves_no_temp() {
         let dir = temp_dir("atomic");
         let target = dir.join("file.rcs");
-        write_atomic(&target, b"first").expect("первая запись");
-        write_atomic(&target, b"second").expect("вторая запись");
-        assert_eq!(std::fs::read(&target).expect("чтение"), b"second");
+        write_atomic(&target, b"first").expect("first write");
+        write_atomic(&target, b"second").expect("second write");
+        assert_eq!(std::fs::read(&target).expect("read"), b"second");
 
         let leftovers: Vec<_> = std::fs::read_dir(&dir)
-            .expect("каталог")
+            .expect("directory")
             .flatten()
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .filter(|name| name.contains(".tmp"))
             .collect();
-        assert!(leftovers.is_empty(), "временные файлы остались: {leftovers:?}");
+        assert!(leftovers.is_empty(), "temporary files left behind: {leftovers:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -278,16 +278,16 @@ mod tests {
     fn converts_pts_and_reports_progress() {
         let dir = temp_dir("pts");
         let source = dir.join("tiny.pts");
-        std::fs::write(&source, "3\n0 0 0\n1 1 1\n2 2 2\n").expect("вход");
+        std::fs::write(&source, "3\n0 0 0\n1 1 1\n2 2 2\n").expect("input");
         let out = dir.join("out");
         let options = options_for(&source, &out);
-        let build = options.build_options().expect("параметры");
+        let build = options.build_options().expect("settings");
 
         let recorder = Recorder::default();
         let result = convert_one(&source, &options, &build, false, &recorder);
         assert_eq!(result.status, Status::Written, "{}", result.message());
         assert!(result.target.exists());
-        assert!(result.message().contains("точек 3"), "{}", result.message());
+        assert!(result.message().contains("3 points"), "{}", result.message());
 
         let stages = recorder.stages.lock().expect("stages").clone();
         assert!(stages.contains(&Stage::Read), "{stages:?}");
@@ -301,17 +301,17 @@ mod tests {
     fn cancel_produces_no_file() {
         let dir = temp_dir("cancel");
         let source = dir.join("tiny.pts");
-        std::fs::write(&source, "3\n0 0 0\n1 1 1\n2 2 2\n").expect("вход");
+        std::fs::write(&source, "3\n0 0 0\n1 1 1\n2 2 2\n").expect("input");
         let out = dir.join("out");
         let options = options_for(&source, &out);
-        let build = options.build_options().expect("параметры");
+        let build = options.build_options().expect("settings");
 
         let recorder = Recorder::default();
         recorder.cancel.store(true, Ordering::Relaxed);
         let result = convert_one(&source, &options, &build, false, &recorder);
         assert_eq!(result.status, Status::Cancelled);
-        assert!(!result.target.exists(), "файл не должен появиться");
-        assert!(result.message().contains("отменено"), "{}", result.message());
+        assert!(!result.target.exists(), "the file must not appear");
+        assert!(result.message().contains("cancelled"), "{}", result.message());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -319,22 +319,22 @@ mod tests {
     fn skips_existing_without_force_and_overwrites_with_it() {
         let dir = temp_dir("force");
         let source = dir.join("tiny.pts");
-        std::fs::write(&source, "1\n0 0 0\n").expect("вход");
+        std::fs::write(&source, "1\n0 0 0\n").expect("input");
         let out = dir.join("out");
-        std::fs::create_dir_all(&out).expect("каталог");
-        std::fs::write(out.join("tiny.rcs"), b"old").expect("старый файл");
+        std::fs::create_dir_all(&out).expect("directory");
+        std::fs::write(out.join("tiny.rcs"), b"old").expect("old file");
 
         let options = options_for(&source, &out);
-        let build = options.build_options().expect("параметры");
+        let build = options.build_options().expect("settings");
         let result = convert_one(&source, &options, &build, false, &NoProgress);
         assert_eq!(result.status, Status::Skipped, "{}", result.message());
-        assert_eq!(std::fs::read(out.join("tiny.rcs")).expect("файл"), b"old");
+        assert_eq!(std::fs::read(out.join("tiny.rcs")).expect("file"), b"old");
 
         let forced = Options { force: true, ..options_for(&source, &out) };
         let result = convert_one(&source, &forced, &build, false, &NoProgress);
         assert_eq!(result.status, Status::Written, "{}", result.message());
-        let written = std::fs::read(out.join("tiny.rcs")).expect("файл");
-        assert_eq!(&written[..8], b"ADOCT\0\0\0", "сигнатура контейнера");
+        let written = std::fs::read(out.join("tiny.rcs")).expect("file");
+        assert_eq!(&written[..8], b"ADOCT\0\0\0", "container signature");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -342,13 +342,13 @@ mod tests {
     fn empty_input_is_reported_as_failure() {
         let dir = temp_dir("empty");
         let source = dir.join("empty.pts");
-        std::fs::write(&source, "0\n").expect("вход");
+        std::fs::write(&source, "0\n").expect("input");
         let out = dir.join("out");
         let options = options_for(&source, &out);
-        let build = options.build_options().expect("параметры");
+        let build = options.build_options().expect("settings");
         let result = convert_one(&source, &options, &build, false, &NoProgress);
         assert_eq!(result.status, Status::Failed);
-        assert!(result.message().contains("ОШИБКА"), "{}", result.message());
+        assert!(result.message().contains("ERROR"), "{}", result.message());
         assert!(!result.target.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }

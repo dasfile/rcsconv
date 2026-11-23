@@ -1,50 +1,50 @@
-//! Прогресс и отмена длинных операций.
+//! Progress and cancellation for long operations.
 //!
-//! Нужны GUI (`rcsconv-gui`): прогресс-бар по этапам и кнопка «Отмена».
-//! CLI передаёт [`NoProgress`], поэтому ни вывод, ни байты эталонов не меняются.
+//! Needed by the GUI (`rcsconv-gui`): a per-stage progress bar and a Cancel button.
+//! The CLI passes [`NoProgress`], so neither the output nor the reference bytes change.
 
-/// Этап сборки `.rcs`.
+/// `.rcs` build stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
-    /// Чтение источника (`.las/.laz/.pts`).
+    /// Reading the source (`.las/.laz/.pts`).
     Read,
-    /// Выбор глубины и раскладка точек по ячейкам.
+    /// Choosing the depth and splitting points into cells.
     Octree,
-    /// Запись узлов (`type 3`) и тел точек (`type 11`).
+    /// Writing tiles (`type 3`) and point bodies (`type 11`).
     Tiles,
-    /// Сборка контейнера: заголовок, директория, блоки.
+    /// Assembling the container: header, directory, blocks.
     Write,
 }
 
 impl Stage {
-    /// Название этапа для интерфейса.
+    /// Stage title for the interface.
     pub fn title(self) -> &'static str {
         match self {
-            Stage::Read => "чтение",
-            Stage::Octree => "октодерево",
-            Stage::Tiles => "узлы",
-            Stage::Write => "запись",
+            Stage::Read => "reading",
+            Stage::Octree => "octree",
+            Stage::Tiles => "tiles",
+            Stage::Write => "writing",
         }
     }
 }
 
-/// Приёмник отчётов о ходе сборки.
+/// Receiver of build progress reports.
 ///
-/// Реализации должны быть дешёвыми: `stage` вызывается часто (несколько раз
-/// на миллион точек), а `cancelled` — ещё чаще, на каждой проверке.
+/// Implementations must be cheap: `stage` is called often (a few times per
+/// million points), and `cancelled` even more often, at every check.
 pub trait Progress: Send + Sync {
-    /// Текущий этап: сделано `done` из `total` (`total = 0` — всего неизвестно).
+    /// Current stage: `done` out of `total` (`total = 0` means unknown).
     fn stage(&self, stage: Stage, done: u64, total: u64) {
         let _ = (stage, done, total);
     }
 
-    /// Запрошена ли отмена. Проверяется в точках останова сборки.
+    /// Whether cancellation was requested. Checked at build stop points.
     fn cancelled(&self) -> bool {
         false
     }
 }
 
-/// Приёмник-пустышка: ни отчётов, ни отмены (CLI, тесты, паритетные прогоны).
+/// No-op receiver: no reports, no cancellation (CLI, tests, parity runs).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoProgress;
 

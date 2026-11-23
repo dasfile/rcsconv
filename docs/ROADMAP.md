@@ -1,155 +1,167 @@
 # Roadmap
 
-Статус: Python-реализация закрыта по приёмке (версия 1.0.0, см. `PLAN.md`) и
-**остаётся эталоном**. Целевой продукт проекта — автономный `rcsconv.exe`.
+Status: the Python implementation is closed against acceptance (version 1.0.0, see
+`PLAN.md`) and **remains the reference**. The target product of the project is the
+standalone `rcsconv.exe`.
 
-Роли зафиксированы:
+Roles are fixed:
 
-| Что | Зачем |
+| What | Why |
 |---|---|
-| **Python (`tools/`)** | эталонная реализация и «оракул» для паритетных тестов, среда исследования формата (§12), разборы корпуса |
-| **Rust (`rust/`)** | целевой поставщик: один самодостаточный `.exe` без Python, DLL и установки |
+| **Python (`tools/`)** | reference implementation and "oracle" for parity tests, format research environment (section 12), corpus analysis |
+| **Rust (`rust/`)** | target deliverable: one self-contained `.exe` without Python, DLLs or installation |
 
-## 1. Цель: `rcsconv.exe`
+## 1. Goal: `rcsconv.exe`
 
-Требования владельца к продукту:
+The owner's product requirements:
 
-- **один файл**, статическая линковка (`crt-static`): без Python, без DLL, без установки;
-- тот же набор команд, что у Python-версии: `pts2rcs`, `las2rcs`, `rcs2pts`, `inspect`;
-- результат **побайтово совпадает** с Python-версией на эталонах.
+- **one file**, static linking (`crt-static`): no Python, no DLLs, no installation;
+- the same command set as the Python version: `pts2rcs`, `las2rcs`, `rcs2pts`, `inspect`;
+- the result is **byte-identical** to the Python version on the reference files.
 
-### Критерии приёмки (release)
+### Release acceptance criteria
 
-| Критерий | Порог |
+| Criterion | Threshold |
 |---|---|
-| размер бинарника | ≤ 6 МБ, статическая линковка (без внешних DLL и без Python-рантайма) |
-| паритет с Python на `probe6/test1/test2` | побайтово |
-| паритет на `level_7` (`.pts` и `.laz`) | побайтово по блокам `type 1`/`type 0`, дерево 43 узла, глубина 3 |
-| скорость: 4 млн точек | ≤ 30 с; цель ≤ 10 с на 20 ядрах |
-| приёмка у потребителя | файл открывается в Revit 2023, bbox/count/координаты по `.clinerules` п.6 |
+| binary size | <= 6 MB, static linking (no external DLLs, no Python runtime) |
+| parity with Python on `probe6/test1/test2` | byte for byte |
+| parity on `level_7` (`.pts` and `.laz`) | byte for byte on the `type 1`/`type 0` blocks, 43 tiles, depth 3 |
+| speed: 4 M points | <= 30 s; goal <= 10 s on 20 cores |
+| acceptance by the consumer | the file opens in Revit 2023, bbox/count/coordinates per `.clinerules` 6 |
 
-Предварительные замеры (release, GNU, `crt-static`; эталон — Python на той же машине):
+Preliminary measurements (release, GNU, `crt-static`; the reference is Python on the
+same machine):
 
-| Показатель | Python | Rust |
+| Metric | Python | Rust |
 |---|---|---|
-| `level_7.pts` (324 680 точек) → `.rcs` | 11.2 с | **0.7 с** |
-| `level_7.laz` (324 680 точек) → `.rcs` | 19 с | **0.7 с** |
-| размер `rcsconv.exe` (с LAZ) | — | **604 КБ**, без внешних DLL |
+| `level_7.pts` (324,680 points) -> `.rcs` | 11.2 s | **0.7 s** |
+| `level_7.laz` (324,680 points) -> `.rcs` | 19 s | **0.7 s** |
+| `rcsconv.exe` size (with LAZ) | — | **604 KB**, no external DLLs |
 
-## 2. Почему Rust, а не C
+## 2. Why Rust, not C
 
-Rust выбран владельцем; обоснование записано, чтобы решение не пересматривалось:
+Rust was chosen by the owner; the reasoning is recorded so the decision is not
+revisited:
 
-- **LAZ в Rust — готовый чистый крейт** (`laz`, при необходимости `las`): без
-  внешних DLL. В C пришлось бы линковать `laszip.dll` (ломает «один файл») или
-  писать свой декомпрессор.
-- **Паритет с Python «из коробки»**: `cargo test` + те же эталоны; `serde`, `clap`,
-  `zip`, `quick-xml` закрывают JSON, CLI и `.rcp` без ручного разбора.
-- **Без ручного управления памятью** в горячем цикле (миллионы точек, 20 потоков);
-  в C цена ошибки — падения и порча данных на приёмке.
-- **Статический GNU-бинарник** получается флагом `crt-static` (2–5 МБ); PyInstaller
-  для того же дал бы 30–50 МБ и внешний Python-рантайм.
+- **LAZ in Rust is a ready pure crate** (`laz`, plus `las` if needed): no external
+  DLLs. In C one would have to link `laszip.dll` (breaking "one file") or write a
+  decompressor.
+- **Parity with Python out of the box**: `cargo test` + the same reference files;
+  `serde`, `clap`, `zip`, `quick-xml` cover JSON, the CLI and `.rcp` without manual
+  parsing.
+- **No manual memory management** in the hot loop (millions of points, 20 threads);
+  in C the cost of a mistake is crashes and corrupted data at acceptance.
+- **A static GNU binary** is produced with the `crt-static` flag (2–5 MB);
+  PyInstaller would have given 30–50 MB plus an external Python runtime.
 
-## 3. Тулчейн: GNU, без MSVC
+## 3. Toolchain: GNU, no MSVC
 
-- Тулчейн `stable-x86_64-pc-windows-gnu` (rustc 1.99.1); линкер — установленный
-  MinGW (WinLibs, gcc 16.2, UCRT).
-- Ставится двумя равноправными способами: `rustup` (CI, другие машины) или
-  **портативно** — распаковать архив тулчейна в `C:\mingw64\rust` и задать машинные
-  `PATH` + `CARGO_HOME` (так на машине владельца, `rustup` не нужен; README,
-  раздел «Тулчейн: портативная установка»).
-- **MSVC не используется** — решение владельца (и он не нужен).
-- Release-профиль: `lto = "fat"`, `codegen-units = 1`, `strip = true`,
-  `panic = "abort"`, `+crt-static`.
+- Toolchain `stable-x86_64-pc-windows-gnu` (rustc 1.99.1); the linker is the
+  installed MinGW (WinLibs, gcc 16.2, UCRT).
+- It is installed in two equivalent ways: `rustup` (CI, other machines) or
+  **portably** — unpack the toolchain archive into `C:\rust` and set the machine
+  `PATH` + `CARGO_HOME` (this is the owner's machine; `rustup` is not needed;
+  README, section "Toolchain: portable installation").
+- **MSVC is not used** — the owner's decision (and it is not needed).
+- Release profile: `lto = "fat"`, `codegen-units = 1`, `strip = true`,
+  `panic = "unwind"`, `+crt-static`. `unwind` rather than `abort` so the GUI can
+  catch a worker panic with `catch_unwind` and show an error box.
 
-## 4. Фазы (по одной сессии, у каждой — паритетный тест)
+## 4. Phases (one session each, each with a parity test)
 
-Сделано: **R0** (тулчейн, статический каркас), **R1** (контейнер, дерево, тела
-точек, `type 1`, `type 0`, писатель — побайтовый паритет на 9 эталонах),
-**R2** и **R4** (октодерево, `.pts` → `.rcs`, `.las/.laz` → `.rcs`; паритет с
-Python на `level_7` — только GUID, как у самого Python), **G0** (подготовка GUI:
-крейт `rcs-conv`, прогресс и отмена в библиотеках), **G1** (каркас
-`rcsconv-gui.exe` на `windows-sys`: окно, манифест comctl32 v6 + DPI).
+Done: **R0** (toolchain, static skeleton), **R1** (container, tile tree, point
+bodies, `type 1`, `type 0`, writer — byte parity on 9 reference files), **R2** and
+**R4** (octree, `.pts` -> `.rcs`, `.las/.laz` -> `.rcs`; parity with Python on
+`level_7` — only the GUID differs, as with Python itself), **G0** (GUI preparation:
+the `rcs-conv` crate, progress and cancellation in the libraries), **G1** (the
+`rcsconv-gui.exe` skeleton on `windows-sys`: window, comctl32 v6 manifest + DPI),
+**G2** (file queue), **G3** (parameters), **G4** (background conversion).
 
-Порядок изменён по решению владельца: **LAZ важнее `.pts`** (съёмка идёт в `.laz`),
-поэтому R4 сделан вместе с R2, `.pts` остался вторым входом.
+The order was changed by the owner's decision: **LAZ matters more than `.pts`**
+(capture is done in `.laz`), so R4 was done together with R2 and `.pts` stayed the
+second input.
 
-| Фаза | Что | Приёмка |
+| Phase | What | Acceptance |
 |---|---|---|
-| **R0** ✅ | поставить GNU-тулчейн (`rustup`, позже перенесён портативно в `C:\mingw64\rust` — см. журнал `PLAN.md`), проверить `cargo build` | `rcsconv.exe` «hello» собирается, MSVC не нужен |
-| **R1** ✅ | workspace `rust/` + крейт `rcs-format`: заголовок, директория, блоки, тело точки, `type 1`, `type 0` | байт-в-байт с Python на `probe6/test1/test2` |
-| **R2** ✅ | `rcs-cloud` (октодерево) + парсер `.pts` → команда `pts2rcs` | байт-в-байт на `level_7.pts` (43 узла) |
-| **R4** ✅ | `cloud-las` (крейты `las` + `laz`) → `las2rcs` | байт-в-байт на `level_7.laz` |
-| **R5** | release-профиль (`lto`, `strip`, `panic=abort`, `crt-static`), замеры | размер и скорость по §1 |
-| **R6** | GUI на Win32: `rcsconv-gui.exe` (`windows-sys`, без фреймворка) | `level_7.laz` из GUI = файл CLI байт-в-байт; см. §4.1 |
+| **R0** done | install the GNU toolchain (`rustup`, later moved portably to `C:\rust` — see the `PLAN.md` journal), check `cargo build` | a "hello" `rcsconv.exe` builds, no MSVC needed |
+| **R1** done | workspace `rust/` + crate `rcs-format`: header, directory, blocks, point body, `type 1`, `type 0` | byte for byte with Python on `probe6/test1/test2` |
+| **R2** done | `rcs-cloud` (octree) + `.pts` parser -> the `pts2rcs` command | byte for byte on `level_7.pts` (43 tiles) |
+| **R4** done | `cloud-las` (crates `las` + `laz`) -> `las2rcs` | byte for byte on `level_7.laz` |
+| **R5** | release profile (`lto`, `strip`, `crt-static`), measurements | size and speed per section 1 |
+| **R6** | Win32 GUI: `rcsconv-gui.exe` (`windows-sys`, no framework) | `level_7.laz` from the GUI equals the CLI file byte for byte; see section 4.1 |
 
-Структура (сделано): `rust/` — workspace; крейты `rcs-format` (контейнер),
-`rcs-cloud` (октодерево и сборка), `cloud-pts`, `cloud-las`, `rcs-conv`
-(оркестрация: параметры, обход входов, конвертация — общая для CLI и GUI),
-`rcsconv` (CLI). Осталось: `R3` — чтение `.rcs` (`rcs2pts`, `inspect`) и
-`R5` — финальные замеры.
+Structure (done): `rust/` is the workspace; crates `rcs-format` (container),
+`rcs-cloud` (octree and assembly), `cloud-pts`, `cloud-las`, `rcs-conv`
+(orchestration: parameters, input walking, conversion — shared by the CLI and the
+GUI), `rcsconv` (CLI), `rcsconv-gui` (GUI). Remaining: `R3` — reading `.rcs`
+(`rcs2pts`, `inspect`) — and `R5` — final measurements and release.
 
-### 4.1 R6 — GUI на Win32: фазы
+### 4.1 R6 — Win32 GUI: phases
 
-Решение владельца: интерфейс — **нативный Win32** (не фреймворк), потому что
-нужен привычный вид и «один лёгкий `.exe`». Связь с системой — крейт
-**`windows-sys`** (тонкие декларации, без proc-macro и build.rs) плюс свои
-обёртки; `unsafe` изолирован в одном-двух модулях. Отдельный бинарник
-**`rcsconv-gui.exe`** (`windows_subsystem = "windows"`) рядом с `rcsconv.exe`:
-CLI остаётся с консолью и прежними кодами выхода, GUI не зависит от него
-(оба линкуют одни и те же крейты).
+The owner's decision: the interface is **native Win32** (not a framework), because a
+familiar look and "one light `.exe`" are required. The system boundary is the
+**`windows-sys`** crate (thin declarations, no proc-macros or build.rs) plus our own
+wrappers; `unsafe` is isolated in one or two modules. A separate binary
+**`rcsconv-gui.exe`** (`windows_subsystem = "windows"`) next to `rcsconv.exe`: the
+CLI keeps its console and exit codes, the GUI does not depend on it (both link the
+same crates).
 
-| Фаза | Что | Приёмка |
+| Phase | What | Acceptance |
 |---|---|---|
-| **G0** ✅ | `rcs-conv` (общая оркестрация), `Progress`/`Cancel`, `Error::Cancelled`, атомарная запись `tmp`+`rename` | CLI-файлы и тексты прежние (различия только GUID), 53 теста |
-| **G1** ✅ | крейт `rcsconv-gui`: окно, message loop, манифест (comctl32 v6, `PerMonitorV2`), `build.rs` через `windres`, `panic = "unwind"` + `catch_unwind` в worker'е | окно открывается без консоли, зависимости `objdump` — только system DLL, размер замерен, `cargo check --workspace` на Linux проходит |
-| **G2** ✅ | очередь файлов: `GetOpenFileNameW`, `SHBrowseForFolderW`, drag&drop (`WM_DROPFILES`), `SysListView32`, удаление/очистка, дубликаты | набор файлов совпадает с `expand_sources`; тесты модели очереди |
-| **G3** ✅ | параметры (папка вывода, `--units-scale`, recenter, флаги цвета/интенсивности, `-m`, GUID), валидация, сохранение в `HKCU\Software\rcsconv\gui` | тест «состояние GUI → `Options` == `Options::parse` для эквивалентной строки» |
-| **G4** ✅ | worker-поток, прогресс-бар по этапам и точкам (`WM_TIMER` + атомарные счётчики), «Отмена», лог, «открыть папку», итог | `level_7.laz` из GUI с `-g` = тот же файл, что у CLI; отмена не оставляет файла; UI не замирает |
-| **G5** | R3: `inspect`/`rcs2pts` в CLI + панель «Инфо» и экспорт в `.pts` в GUI | паритет с `tools/rcs2pts.py` (±1e-6), `inspect` = `rcs_inspect.py` |
-| **G6** | полировка (горячие клавиши, геометрия окна, таскбар-прогресс), `docs/GUI.md`, приёмка в Revit 2023 | чек-лист `docs/GUI.md` воспроизводим другим человеком |
+| **G0** done | `rcs-conv` (shared orchestration), `Progress`/`Cancel`, `Error::Cancelled`, atomic write `tmp`+`rename` | CLI files and texts unchanged (only GUID differences), 53 tests |
+| **G1** done | crate `rcsconv-gui`: window, message loop, manifest (comctl32 v6, `PerMonitorV2`), `build.rs` via `windres`, `panic = "unwind"` + `catch_unwind` in the worker | the window opens without a console, `objdump` dependencies are system DLLs only, size measured, `cargo check --workspace` passes on Linux |
+| **G2** done | file queue: `GetOpenFileNameW`, `SHBrowseForFolderW`, drag and drop (`WM_DROPFILES`), `SysListView32`, remove/clear, duplicates | the file set matches `expand_sources`; queue model tests |
+| **G3** done | parameters (output folder, `--units-scale`, recenter, colour/intensity flags, `-m`, GUID), validation, storage in `HKCU\Software\rcsconv\gui` | test "GUI state -> `Options` == `Options::parse` for the equivalent string" |
+| **G4** done | worker thread, progress bar per stage and point (`WM_TIMER` + atomic counters), "Cancel", log, "open folder", summary | `level_7.laz` from the GUI with `-g` equals the CLI file; cancellation leaves no file; the UI does not freeze |
+| **G5** | R3: `inspect`/`rcs2pts` in the CLI + an "Info" panel and `.pts` export in the GUI | parity with `tools/rcs2pts.py` (+/-1e-6), `inspect` == `rcs_inspect.py` |
+| **G6** | polish (hotkeys, window geometry, taskbar progress), `docs/GUI.md`, acceptance in Revit 2023 | the `docs/GUI.md` checklist can be reproduced by another person |
 
-Требования: Windows 10 1809+ (машина владельца — 10 Pro 22H2, build 19045);
-иконка — стандартная (своя `.ico` добавляется позже); язык интерфейса —
-русский, идентификаторы — английские (`.clinerules` п.11).
+Requirements: Windows 10 1809+ (the owner's machine is 10 Pro 22H2, build 19045);
+the icon is the standard one (a custom `.ico` comes later); the interface language
+is **English**, identifiers are English too (`.clinerules` 11).
 
-Переносить нужно не код, а спецификацию: `docs/RCS-FORMAT.md` §9.1 (алгоритм
-сборки) и Приложение C (чек-лист реализации на другом языке). Python-версия
-служит оракулом: расхождение — это баг Rust, пока тест не докажет обратное.
+What must be transferred is the specification, not the code: `docs/RCS-FORMAT.md`
+section 9.1 (the build algorithm) and Appendix C (a checklist for an implementation
+in another language). The Python version is the oracle: a difference is a Rust bug
+until a test proves otherwise.
 
-## 5. Плагин Revit (C#) — ждём материалы владельца
+## 5. Revit plugin (C#) — waiting for the owner's materials
 
-Задача: вставлять `.laz`/`.e57` напрямую в модель Revit. У владельца есть
-наработки — после их передачи появится отдельный документ с архитектурой
-(что вызывает конвертер, как кэшировать `.rcs`, как вести себя при обновлении).
-Пока **не начат**: без материалов нельзя выбрать ни API (Revit API vs внешний
-процесс), ни формат поставки (add-in + CLI). Естественная точка стыка — готовый
-`rcsconv.exe` (R5).
+Task: insert `.laz`/`.e57` directly into a Revit model. The owner has prior work;
+once it is handed over, a separate document with the architecture will appear (what
+calls the converter, how `.rcs` is cached, what happens on upgrade). Not started
+yet: without the materials neither the API (Revit API vs an external process) nor
+the delivery form (add-in + CLI) can be chosen. The natural integration point is
+the finished `rcsconv.exe` (R5). The constraints and the integration contract are
+recorded in `docs/REVIT-PLUGIN.md` (later; no C# code yet).
 
-## 6. `.e57` — отложено
+## 6. `.e57` — deferred
 
-Причина — нет корректного `.e57`: и файлы libe57.org, и экспорт CloudCompare
-2.14.beta содержат повреждённый XML (детали — `docs/CORPUS.md`). Практический
-путь сейчас: `e57 → CloudCompare → .laz → las2rcs`. Когда появится читаемый файл:
-`e57_read.py` + `e572rcs.py` (см. `PLAN.md`, F2).
+Reason: there is no valid `.e57` — both the libe57.org files and the CloudCompare
+2.14.beta export contain corrupted XML (details in `docs/CORPUS.md`). The practical
+path today is `e57 -> CloudCompare -> .laz -> las2rcs`. When a readable file
+appears: `e57_read.py` + `e572rcs.py` (see `PLAN.md`, F2).
 
-## 7. Backlog §12 по формату `.rcs`
+## 7. Backlog section 12 of the `.rcs` format
 
-Порядок по ценности (все — «на понимание», на совместимость не влияют):
+Ordered by value (all are "for understanding", they do not affect compatibility):
 
-1. механизм децимации при экспорте Unified (сетка ≈5 мм);
-2. байты тела `[12]`/`[13]`;
-3. поля записи узла `@96/@112/@116/@120/tail`;
-4. записи `kind 0…7` в заголовке payload'а;
-5. `count` заголовка против суммы по узлам.
+1. the decimation mechanism during Unified export (grid of about 5 mm);
+2. body bytes `[12]`/`[13]`;
+3. tile record fields `@96/@112/@116/@120/tail`;
+4. `kind 0..7` records in the payload header;
+5. header `count` versus the sum over tiles.
 
-Понимание §12 нужно Rust-порту только для полноты `inspect`: генерация `.rcs`
-на эти вопросы не опирается.
+Understanding section 12 is needed by the Rust port only for a complete `inspect`:
+generating `.rcs` does not depend on these questions.
 
-## 8. Мелочи
+## 8. Small items
 
-- `--project` у конвертеров: собрать `.rcp`-обёртку (ZIP + XML + наш `.rcs`) —
-  эксперимент, проверять открытием в ReCap.
-- Схема формата на Kaitai Struct / ImHex как независимая документация
-  (Kaitai-компилятор у владельца установлен).
-- CI: джоба `cargo test` добавляется после R1; публикация `.exe` в релизы — после R5.
+- `--project` for the converters: build an `.rcp` wrapper (ZIP + XML + our `.rcs`) —
+  an experiment, verified by opening in ReCap.
+- A format schema in Kaitai Struct / ImHex as independent documentation (the Kaitai
+  compiler is installed on the owner's machine).
+- CI: the `cargo test` job exists; publishing `.exe` files to releases happens after
+  R5 (`docs/RELEASE.md`).
+- Repository language: English only. The Russian mirror of the documentation lives
+  in `docs-rus/` (git-ignored) on the owner's machine.

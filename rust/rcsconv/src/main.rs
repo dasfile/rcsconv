@@ -1,8 +1,8 @@
-//! rcsconv — конвертер Autodesk ReCap `.rcs` (контейнер ADOCT).
+//! rcsconv — Autodesk ReCap `.rcs` converter (ADOCT container).
 //!
-//! Целевой продукт — один статический `.exe` без Python (`docs/ROADMAP.md`).
-//! Готово: `.las/.laz` → `.rcs` (`las2rcs`), `.pts` → `.rcs` (`pts2rcs`).
-//! Паритет с Python-эталоном (`tools/`) проверяется побайтово.
+//! The target product is a single static `.exe` without Python (`docs/ROADMAP.md`).
+//! Done: `.las/.laz` -> `.rcs` (`las2rcs`), `.pts` -> `.rcs` (`pts2rcs`).
+//! Parity with the Python reference (`tools/`) is checked byte by byte.
 
 mod cli;
 
@@ -41,7 +41,7 @@ Examples:
   rcsconv pts2rcs golden/probe6.pts -o out
 ";
 
-/// Разобранная командная строка.
+/// Parsed command line.
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Version,
@@ -78,7 +78,7 @@ fn main() -> ExitCode {
             ExitCode::from(code as u8)
         }
         Command::Unknown(arg) => {
-            eprintln!("rcsconv: неизвестный аргумент: {arg}");
+            eprintln!("rcsconv: unknown argument: {arg}");
             eprint!("{USAGE}");
             ExitCode::from(2)
         }

@@ -1,7 +1,7 @@
-# Тулчейн: канал stable. Хост задаётся установкой (на машине владельца — портативный
-# тулчейн в `C:\mingw64\rust`, `rustup` не нужен, см. README). Файл читает только
-# `rustup`: без него он инертен, а в CI (Ubuntu) по нему выбирается канал.
-# Явный триплет здесь сломал бы сборку на Linux/CI.
+# Toolchain: stable channel. The host is chosen by the installation (on the owner's
+# machine a portable toolchain in `C:\rust`, no `rustup`; see README). Only `rustup`
+# reads this file: without it the file is inert, while CI (Ubuntu) uses it to pick
+# the channel. Pinning a triple here would break the Linux/CI build.
 [toolchain]
 channel = "stable"
 profile = "minimal"

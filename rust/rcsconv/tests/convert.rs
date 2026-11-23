@@ -1,10 +1,11 @@
-//! Интеграционные тесты CLI: запуск `rcsconv` как процесса.
+//! CLI integration tests: run `rcsconv` as a process.
 //!
-//! Проверяются инварианты результата (`docs/RCS-FORMAT.md` §10) и поведение
-//! интерфейса. Побайтовый паритет с Python на эталонах проверяется отдельно
-//! (`сама сборка` — `cargo test` + `out/py` в ручном прогоне, см. `PLAN.md`).
+//! Checks the result invariants (`docs/RCS-FORMAT.md` 10) and the interface
+//! behaviour. Byte parity with Python on the reference files is checked
+//! separately (the build itself — `cargo test` plus `out/py` in a manual run, see
+//! `PLAN.md`).
 //!
-//! Данные (`golden/`) в git не входят: тесты без них печатают «пропуск» и проходят.
+//! The data (`golden/`) is not in git: without it the tests print "skipped" and pass.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -17,7 +18,7 @@ fn golden(name: &str) -> Option<PathBuf> {
     if path.exists() {
         Some(path)
     } else {
-        eprintln!("пропуск: нет {}", path.display());
+        eprintln!("skipped: no {}", path.display());
         None
     }
 }
@@ -25,7 +26,7 @@ fn golden(name: &str) -> Option<PathBuf> {
 fn temp_dir(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("rcsconv-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("временный каталог");
+    std::fs::create_dir_all(&dir).expect("temporary directory");
     dir
 }
 
@@ -33,30 +34,30 @@ fn run(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_rcsconv"))
         .args(args)
         .output()
-        .expect("запуск rcsconv")
+        .expect("start rcsconv")
 }
 
-/// Проверить инварианты собранного файла: блоки, узлы, метаданные, точки.
+/// Check the invariants of a built file: blocks, tiles, metadata, points.
 fn assert_cloud_file(path: &Path, expected_points: u64, expected_tiles: usize, words: &[u32]) {
-    let data = std::fs::read(path).expect("чтение результата");
-    let container = Container::parse(&data).expect("разбор результата");
-    assert_eq!(container.directory_offset(), 0x135, "директория на 0x135");
-    assert_eq!(container.block_types(), vec![3, 1, 11, 0], "порядок блоков");
-    assert_eq!(container.header().count, expected_points, "count заголовка");
-    assert_eq!(container.header().chunk_version, 5, "экспорт Unified RCS");
+    let data = std::fs::read(path).expect("read result");
+    let container = Container::parse(&data).expect("parse result");
+    assert_eq!(container.directory_offset(), 0x135, "directory at 0x135");
+    assert_eq!(container.block_types(), vec![3, 1, 11, 0], "block order");
+    assert_eq!(container.header().count, expected_points, "header count");
+    assert_eq!(container.header().chunk_version, 5, "Unified RCS export");
 
-    let tiles = tile::iter_tiles(&container).expect("узлы");
-    assert_eq!(tiles.len(), expected_tiles, "число узлов");
+    let tiles = tile::iter_tiles(&container).expect("tiles");
+    assert_eq!(tiles.len(), expected_tiles, "number of tiles");
     let sum: u64 = tiles.iter().map(|tile| tile.count as u64).sum();
-    assert_eq!(sum, expected_points, "сумма count по узлам");
+    assert_eq!(sum, expected_points, "sum of tile counts");
 
-    let block = container.block_of_type(1).expect("блок type 1");
-    let meta = Metadata::parse(container.read_block(block)).expect("разбор type 1");
-    assert_eq!(meta.levels(), words, "занятые узлы по уровням");
+    let block = container.block_of_type(1).expect("type 1 block");
+    let meta = Metadata::parse(container.read_block(block)).expect("type 1 parse");
+    assert_eq!(meta.levels(), words, "occupied tiles per level");
     assert!(meta.is_consistent(), "K = sum(words)");
 
-    let points = point::decode_all(&container).expect("точки");
-    assert_eq!(points.len() as u64, expected_points, "точки декодируются все");
+    let points = point::decode_all(&container).expect("points");
+    assert_eq!(points.len() as u64, expected_points, "all points decode");
 }
 
 #[test]
@@ -64,7 +65,7 @@ fn version_and_help() {
     let output = run(&["--version"]);
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.starts_with("rcsconv "), "версия: {text}");
+    assert!(text.starts_with("rcsconv "), "version: {text}");
 
     let output = run(&["--help"]);
     assert!(output.status.success());
@@ -81,7 +82,7 @@ fn unknown_flag_is_rejected() {
 #[test]
 fn missing_input_is_reported() {
     let output = run(&["pts2rcs", "no-such-file.pts"]);
-    assert_eq!(output.status.code(), Some(1), "ошибка чтения входа");
+    assert_eq!(output.status.code(), Some(1), "input read error");
 }
 
 #[test]
@@ -92,13 +93,13 @@ fn pts2rcs_builds_level_7() {
     let out = temp_dir("pts");
     let output = run(&[
         "pts2rcs",
-        source.to_str().expect("путь"),
+        source.to_str().expect("path"),
         "-o",
-        out.to_str().expect("путь"),
+        out.to_str().expect("path"),
     ]);
-    assert!(output.status.success(), "код 0: {output:?}");
+    assert!(output.status.success(), "exit code 0: {output:?}");
     let target = out.join("level_7.rcs");
-    assert!(target.exists(), "файл создан");
+    assert!(target.exists(), "file created");
     assert_cloud_file(&target, 324_680, 43, &[1, 8, 13, 43]);
     let _ = std::fs::remove_dir_all(out);
 }
@@ -111,11 +112,11 @@ fn las2rcs_builds_level_7() {
     let out = temp_dir("las");
     let output = run(&[
         "las2rcs",
-        source.to_str().expect("путь"),
+        source.to_str().expect("path"),
         "-o",
-        out.to_str().expect("путь"),
+        out.to_str().expect("path"),
     ]);
-    assert!(output.status.success(), "код 0: {output:?}");
+    assert!(output.status.success(), "exit code 0: {output:?}");
     let target = out.join("level_7.rcs");
     assert_cloud_file(&target, 324_680, 43, &[1, 8, 13, 43]);
     let _ = std::fs::remove_dir_all(out);
@@ -129,14 +130,14 @@ fn existing_output_requires_force() {
     let out = temp_dir("force");
     let args = [
         "pts2rcs",
-        source.to_str().expect("путь"),
+        source.to_str().expect("path"),
         "-o",
-        out.to_str().expect("путь"),
+        out.to_str().expect("path"),
     ];
-    assert!(run(&args).status.success(), "первый прогон");
+    assert!(run(&args).status.success(), "first run");
     let output = run(&args);
-    assert!(output.status.success(), "второй прогон без -f");
+    assert!(output.status.success(), "second run without -f");
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.contains("пропущено"), "сообщение о пропуске: {text}");
+    assert!(text.contains("skipped"), "skip message: {text}");
     let _ = std::fs::remove_dir_all(out);
 }

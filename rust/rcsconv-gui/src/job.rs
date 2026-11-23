@@ -1,9 +1,10 @@
-//! Фоновый поток конвертации: очередь → `rcs_conv::convert_one`.
+//! Background conversion thread: queue -> `rcs_conv::convert_one`.
 //!
-//! UI не блокируется: поток сообщает прогресс через [`Shared`] (трейт
-//! `rcs_conv::Progress`), окно опрашивает его по таймеру и забирает готовые
-//! результаты. Отмена — флаг в том же `Shared`: `convert_one` проверяет его на
-//! этапах сборки, а файл пишется атомарно, поэтому отменённый `.rcs` не остаётся.
+//! The UI never blocks: the thread reports progress through [`Shared`] (the
+//! `rcs_conv::Progress` trait), the window polls it on a timer and takes finished
+//! results. Cancellation is a flag in the same `Shared`: `convert_one` checks it
+//! at build stages and the file is written atomically, so a cancelled `.rcs` never
+//! remains on disk.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -14,7 +15,7 @@ use rcs_conv::{convert_one, Conversion, Progress, Stage, Status};
 
 use crate::params::Settings;
 
-/// Состояние задания, разделяемое потоком и окном.
+/// Job state shared by the thread and the window.
 pub struct Shared {
     stage: Mutex<(Stage, u64, u64)>,
     cancel: AtomicBool,
@@ -48,27 +49,27 @@ impl Progress for Shared {
 }
 
 impl Shared {
-    /// Новое состояние задания.
+    /// New job state.
     pub fn new() -> Arc<Shared> {
         Arc::new(Shared::default())
     }
 
-    /// Попросить отменить конвертацию.
+    /// Ask to cancel the conversion.
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
 
-    /// Текущий этап: `(этап, сделано, всего)`.
+    /// Current stage: `(stage, done, total)`.
     pub fn progress(&self) -> (Stage, u64, u64) {
         self.stage.lock().map(|slot| *slot).unwrap_or((Stage::Read, 0, 0))
     }
 
-    /// Готовые результаты (копия; окно читает их в UI-потоке).
+    /// Finished results (a copy; the window reads them on the UI thread).
     pub fn results(&self) -> Vec<Conversion> {
         self.results.lock().map(|items| items.clone()).unwrap_or_default()
     }
 
-    /// Задание завершено (успешно или отменено).
+    /// The job is finished (successfully or cancelled).
     pub fn is_finished(&self) -> bool {
         self.finished.load(Ordering::Relaxed)
     }
@@ -84,10 +85,10 @@ impl Shared {
     }
 }
 
-/// Сконвертировать файлы по очереди (синхронно — это тело потока и тестов).
+/// Convert the files one by one (synchronously — this is the thread and test body).
 pub fn run_jobs(paths: Vec<PathBuf>, settings: Settings, shared: &Shared) {
-    // `convert_one` не использует `Options::sources`, но валидация требует
-    // непустой список — передаём заглушку.
+    // `convert_one` does not use `Options::sources`, but validation requires a
+    // non-empty list — pass a placeholder.
     let Ok(options) = settings.to_options(vec![".".to_string()]) else {
         shared.mark_finished();
         return;
@@ -112,10 +113,10 @@ pub fn run_jobs(paths: Vec<PathBuf>, settings: Settings, shared: &Shared) {
     shared.mark_finished();
 }
 
-/// Запустить конвертацию в фоновом потоке.
+/// Start the conversion in a background thread.
 ///
-/// Паника внутри потока не должна уносить окно: она перехватывается, а задание
-/// помечается завершённым (одна из причин `panic = "unwind"` в профиле release).
+/// A panic inside the thread must not take the window down: it is caught and the
+/// job is marked finished (one reason for `panic = "unwind"` in the release profile).
 pub fn spawn(paths: Vec<PathBuf>, settings: Settings, shared: Arc<Shared>) -> JoinHandle<()> {
     thread::spawn(move || {
         let guard = shared.clone();
@@ -128,7 +129,7 @@ pub fn spawn(paths: Vec<PathBuf>, settings: Settings, shared: Arc<Shared>) -> Jo
     })
 }
 
-/// Источник LAS/LAZ? (`false` — `.pts`).
+/// LAS/LAZ source? (`false` — `.pts`).
 fn is_las(path: &Path) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
@@ -142,12 +143,12 @@ mod tests {
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("rcs-gui-job-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("временный каталог");
+        std::fs::create_dir_all(&dir).expect("temporary directory");
         dir
     }
 
     fn write_pts(path: &Path) {
-        std::fs::write(path, "3\n0 0 0\n1 1 1\n2 2 2\n").expect("вход");
+        std::fs::write(path, "3\n0 0 0\n1 1 1\n2 2 2\n").expect("input");
     }
 
     #[test]
@@ -187,23 +188,23 @@ mod tests {
         );
 
         assert!(shared.is_finished());
-        assert!(shared.results().is_empty(), "при отмене файлы не конвертируются");
+        assert!(shared.results().is_empty(), "files are not converted after cancellation");
         assert!(!out.join("a.rcs").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// GUI-путь (`Settings` → `Options`) и CLI-путь (`Options::parse`) дают
-    /// побайтово одинаковый `.rcs` на реальном облаке (нужен `golden/`).
+    /// The GUI path (`Settings` -> `Options`) and the CLI path (`Options::parse`)
+    /// produce a byte-identical `.rcs` on a real cloud (requires `golden/`).
     #[test]
     fn gui_and_cli_produce_identical_bytes() {
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../golden/level_7.laz");
         if !source.exists() {
-            eprintln!("пропуск: нет {}", source.display());
+            eprintln!("skipped: no {}", source.display());
             return;
         }
         let dir = temp_dir("parity");
         let out = dir.join("out");
-        std::fs::create_dir_all(&out).expect("каталог");
+        std::fs::create_dir_all(&out).expect("directory");
         let guid = "{00112233-4455-6677-8899-aabbccddeeff}";
 
         let settings = Settings {
@@ -218,7 +219,7 @@ mod tests {
         assert_eq!(results[0].status, Status::Written, "{}", results[0].message());
 
         let cli_dir = dir.join("cli");
-        std::fs::create_dir_all(&cli_dir).expect("каталог");
+        std::fs::create_dir_all(&cli_dir).expect("directory");
         let args: Vec<String> = vec![
             source.display().to_string(),
             "-o".to_string(),
@@ -226,15 +227,15 @@ mod tests {
             "-g".to_string(),
             guid.to_string(),
         ];
-        let options = rcs_conv::Options::parse(&args, true).expect("разбор CLI");
-        let build = options.build_options().expect("параметры");
+        let options = rcs_conv::Options::parse(&args, true).expect("CLI parse");
+        let build = options.build_options().expect("settings");
         let result = convert_one(&source, &options, &build, true, &rcs_conv::NoProgress);
         assert_eq!(result.status, Status::Written);
 
-        let gui_bytes = std::fs::read(out.join("level_7.rcs")).expect("файл GUI");
-        let cli_bytes = std::fs::read(cli_dir.join("level_7.rcs")).expect("файл CLI");
-        assert_eq!(gui_bytes.len(), cli_bytes.len(), "размеры совпадают");
-        assert_eq!(gui_bytes, cli_bytes, "GUI и CLI дают один и тот же файл");
+        let gui_bytes = std::fs::read(out.join("level_7.rcs")).expect("GUI file");
+        let cli_bytes = std::fs::read(cli_dir.join("level_7.rcs")).expect("CLI file");
+        assert_eq!(gui_bytes.len(), cli_bytes.len(), "sizes match");
+        assert_eq!(gui_bytes, cli_bytes, "GUI and CLI produce the same file");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

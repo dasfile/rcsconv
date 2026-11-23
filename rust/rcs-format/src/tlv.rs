@@ -1,33 +1,33 @@
-//! TLV-поток блока свойств (`type 0` в экспорте, `type 5` в raw).
+//! TLV stream of the properties block (`type 0` in exports, `type 5` in raw).
 //!
-//! ПОДТВЕРЖДЕНО (`docs/RCS-FORMAT.md` §3): цепочка `(id u32, size u32, payload)`;
-//! `id = 10` содержит вложенный TLV, остальные id — скаляры. Разбор терпимый:
-//! поток читается до первого несоответствия, как в `tools/rcs_blocks.py`.
+//! CONFIRMED (`docs/RCS-FORMAT.md` 3): a chain of `(id u32, size u32, payload)`;
+//! `id = 10` holds nested TLV, other ids are scalars. Parsing is tolerant: the
+//! stream is read until the first mismatch, as in `tools/rcs_blocks.py`.
 
 use crate::bytes;
 
-/// Размер заголовка записи TLV.
+/// Size of the TLV record header.
 pub const TLV_HEADER_SIZE: usize = 8;
-/// Глубина вложенности, дальше которой payload считается «листом».
+/// Nesting depth beyond which the payload is treated as a leaf.
 pub const TLV_MAX_DEPTH: usize = 3;
 
-/// Запись TLV.
+/// A TLV record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tlv {
-    /// Идентификатор поля.
+    /// Field identifier.
     pub id: u32,
-    /// Смещение записи относительно начала разбираемого буфера (с учётом `base`).
+    /// Record offset relative to the start of the parsed buffer (including `base`).
     pub offset: usize,
-    /// Размер payload.
+    /// Payload size.
     pub size: u32,
-    /// Содержимое без заголовка.
+    /// Contents without the header.
     pub payload: Vec<u8>,
-    /// Вложенные записи, если payload сам оказался корректным TLV.
+    /// Nested records when the payload itself is a valid TLV stream.
     pub children: Vec<Tlv>,
 }
 
-/// Разобрать поток TLV. `depth` — текущая вложенность, `base` — смещение
-/// разбираемого буфера в родителе (для читаемых смещений).
+/// Parse a TLV stream. `depth` is the current nesting, `base` is the offset of
+/// the parsed buffer inside its parent (for readable offsets).
 pub fn parse_tlv(blob: &[u8], depth: usize, base: usize) -> Vec<Tlv> {
     let mut entries = Vec::new();
     let limit = blob.len();
@@ -61,7 +61,7 @@ pub fn parse_tlv(blob: &[u8], depth: usize, base: usize) -> Vec<Tlv> {
     entries
 }
 
-/// Разобрать payload как TLV: принимается только цепочка, покрывающая буфер целиком.
+/// Parse the payload as TLV: accepted only if the chain covers the whole buffer.
 fn nested(blob: &[u8], depth: usize) -> Option<Vec<Tlv>> {
     let entries = parse_tlv(blob, depth, 0);
     let last = entries.last()?;

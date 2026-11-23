@@ -1,14 +1,15 @@
-//! Округление, совместимое с Python.
+//! Python-compatible rounding.
 //!
-//! Паритет с Python-эталоном требует тех же правил: `round(x, 3)` и `round(x)`
-//! в Python округляют **к чётному** (banker's rounding), а `f64::round` в Rust —
-//! от нуля. Разница проявляется на ровно половине (`0.0005`, `0.5`, `2.5`) и
-//! сдвигает квантование на единицу, то есть байты файла.
+//! Byte parity with the Python reference needs the same rules: `round(x, 3)` and
+//! `round(x)` in Python round **half to even** (banker's rounding), while
+//! `f64::round` in Rust rounds away from zero. The difference shows up at exact
+//! halves (`0.0005`, `0.5`, `2.5`) and shifts the quantisation by one unit, i.e.
+//! the file bytes.
 //!
-//! `round_digits` использует форматирование Rust: оно, как и `dtoa` в CPython,
-//! даёт **правильно округлённое** десятичное представление с округлением к чётному.
+//! `round_digits` uses Rust formatting: like `dtoa` in CPython it produces a
+//! **correctly rounded** decimal representation with half-to-even rounding.
 
-/// Округление к ближайшему целому, половина — к чётному (как `round(x)` в Python).
+/// Round to the nearest integer, halves to even (like `round(x)` in Python).
 pub fn round_half_even(value: f64) -> f64 {
     if !value.is_finite() {
         return value;
@@ -26,7 +27,7 @@ pub fn round_half_even(value: f64) -> f64 {
     }
 }
 
-/// Округление до `digits` знаков после запятой (как `round(x, digits)` в Python).
+/// Round to `digits` decimal places (like `round(x, digits)` in Python).
 pub fn round_digits(value: f64, digits: usize) -> f64 {
     if !value.is_finite() {
         return value;
@@ -41,7 +42,7 @@ mod tests {
 
     #[test]
     fn half_even_matches_python() {
-        // Значения, где обычное округление «от нуля» даёт другой результат.
+        // Values where ordinary "away from zero" rounding gives another result.
         assert_eq!(round_half_even(0.5), 0.0);
         assert_eq!(round_half_even(1.5), 2.0);
         assert_eq!(round_half_even(2.5), 2.0);

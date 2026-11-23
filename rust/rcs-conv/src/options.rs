@@ -1,34 +1,34 @@
-//! Разбор параметров конвертации — общий для CLI и GUI.
+//! Parsing conversion parameters — shared by the CLI and the GUI.
 //!
-//! Правило интерфейса повторяет Python-эталон (`tools/rcs_cli.py`, README):
-//! первый аргумент — вход (файл, каталог или маска), имя выхода подставляется
-//! само (`<имя>.rcs`), существующий файл не перезаписывается без `-f`.
+//! The interface rules mirror the Python reference (`tools/rcs_cli.py`, README):
+//! the first argument is the input (file, directory or mask), the output name is
+//! derived (`<name>.rcs`), an existing file is not overwritten without `-f`.
 
 use std::path::PathBuf;
 
 use rcs_cloud::BuildOptions;
 
-/// Расширения входа для `las2rcs`.
+/// Input extensions for `las2rcs`.
 pub const LAS_SUFFIXES: &[&str] = &[".las", ".laz"];
-/// Расширения входа для `pts2rcs`.
+/// Input extensions for `pts2rcs`.
 pub const PTS_SUFFIXES: &[&str] = &[".pts"];
 
-/// Общие параметры конвертеров.
+/// Common converter parameters.
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// Входные файлы, каталоги и маски.
+    /// Input files, directories and masks.
     pub sources: Vec<String>,
-    /// Куда писать (по умолчанию рядом с входом).
+    /// Where to write (next to the input by default).
     pub out_dir: Option<PathBuf>,
-    /// Предел точек в узле.
+    /// Points per tile limit.
     pub max_per_tile: u32,
-    /// Перезаписывать существующий `.rcs`.
+    /// Overwrite an existing `.rcs`.
     pub force: bool,
-    /// Обойти подкаталоги.
+    /// Walk subdirectories.
     pub recursive: bool,
-    /// GUID результата (по умолчанию случайный).
+    /// Result GUID (random by default).
     pub guid: Option<String>,
-    /// Настройки чтения LAS/LAZ.
+    /// LAS/LAZ read settings.
     pub las: cloud_las::LasOptions,
 }
 
@@ -46,7 +46,7 @@ impl Default for Options {
     }
 }
 
-/// Ошибка разбора аргументов.
+/// Argument parse error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArgsError(pub String);
 
@@ -59,9 +59,9 @@ impl std::fmt::Display for ArgsError {
 impl std::error::Error for ArgsError {}
 
 impl Options {
-    /// Разобрать аргументы командной строки.
+    /// Parse the command line arguments.
     ///
-    /// `las` — разрешены ли ключи LAS/LAZ (`--units-scale`, `--recenter`, …).
+    /// `las` — whether LAS/LAZ flags are allowed (`--units-scale`, `--recenter`, ...).
     pub fn parse(args: &[String], las: bool) -> Result<Options, ArgsError> {
         let mut options = Options::default();
         let mut index = 0;
@@ -71,7 +71,7 @@ impl Options {
                 index += 1;
                 args.get(index)
                     .cloned()
-                    .ok_or_else(|| ArgsError(format!("{name}: нужно значение")))
+                    .ok_or_else(|| ArgsError(format!("{name}: a value is required")))
             };
             match arg.as_str() {
                 "-o" | "--out-dir" => options.out_dir = Some(PathBuf::from(take(&arg)?)),
@@ -79,7 +79,7 @@ impl Options {
                     let text = take(&arg)?;
                     options.max_per_tile = text
                         .parse()
-                        .map_err(|_| ArgsError(format!("-m {text}: ожидается целое число")))?;
+                        .map_err(|_| ArgsError(format!("-m {text}: an integer is expected")))?;
                 }
                 "-f" | "--force" => options.force = true,
                 "-r" | "--recursive" => options.recursive = true,
@@ -88,15 +88,15 @@ impl Options {
                     let text = take(&arg)?;
                     options.las.units = text
                         .parse()
-                        .map_err(|_| ArgsError(format!("--units-scale {text}: ожидается число")))?;
+                        .map_err(|_| ArgsError(format!("--units-scale {text}: a number is expected")))?;
                     if options.las.units <= 0.0 {
-                        return Err(ArgsError("--units-scale должен быть > 0".into()));
+                        return Err(ArgsError("--units-scale must be > 0".into()));
                     }
                 }
                 "--recenter" if las => {
                     let text = take(&arg)?;
                     options.las.recenter = cloud_las::Recenter::parse(&text).ok_or_else(|| {
-                        ArgsError(format!("--recenter {text}: допустимо none|center|min"))
+                        ArgsError(format!("--recenter {text}: allowed none|center|min"))
                     })?;
                 }
                 "--no-color" if las => options.las.color = false,
@@ -104,18 +104,18 @@ impl Options {
                 "--color-scale" if las => {
                     let text = take(&arg)?;
                     options.las.color_scale = cloud_las::ScaleMode::parse(&text).ok_or_else(
-                        || ArgsError(format!("--color-scale {text}: допустимо auto|257|1")),
+                        || ArgsError(format!("--color-scale {text}: allowed auto|257|1")),
                     )?;
                 }
                 "--intensity-scale" if las => {
                     let text = take(&arg)?;
                     options.las.intensity_scale =
                         cloud_las::ScaleMode::parse(&text).ok_or_else(|| {
-                            ArgsError(format!("--intensity-scale {text}: допустимо auto|257|1"))
+                            ArgsError(format!("--intensity-scale {text}: allowed auto|257|1"))
                         })?;
                 }
                 other if other.starts_with('-') => {
-                    return Err(ArgsError(format!("неизвестный аргумент: {other}")));
+                    return Err(ArgsError(format!("unknown argument: {other}")));
                 }
                 other => options.sources.push(other.to_string()),
             }
@@ -124,16 +124,16 @@ impl Options {
         Ok(options)
     }
 
-    /// Проверить значения, которые не ловятся при разборе (диапазон `-m`, входы).
+    /// Validate values that parsing does not catch (`-m` range, inputs).
     ///
-    /// Сообщения совпадают с выводом CLI, чтобы GUI показывал то же самое.
+    /// Messages match the CLI output so the GUI shows exactly the same text.
     pub fn validate(&self) -> Result<(), String> {
         if self.sources.is_empty() {
-            return Err("не указаны входные файлы".to_string());
+            return Err("no input files given".to_string());
         }
         if self.max_per_tile == 0 || self.max_per_tile > rcs_cloud::MAX_TILE_POINTS {
             return Err(format!(
-                "-m {} вне 1…{}",
+                "-m {} out of 1..{}",
                 self.max_per_tile,
                 rcs_cloud::MAX_TILE_POINTS
             ));
@@ -141,7 +141,7 @@ impl Options {
         Ok(())
     }
 
-    /// Параметры сборки: нормализованный GUID и предел точек в узле.
+    /// Build parameters: normalised GUID and points per tile limit.
     pub fn build_options(&self) -> Result<BuildOptions, String> {
         let guid = match &self.guid {
             Some(text) => Some(rcs_cloud::normalize_guid(text).map_err(|err| err.to_string())?),
@@ -150,7 +150,7 @@ impl Options {
         Ok(BuildOptions { max_per_tile: self.max_per_tile, guid })
     }
 
-    /// Расширения входа для режима (`las2rcs` или `pts2rcs`).
+    /// Input extensions for the mode (`las2rcs` or `pts2rcs`).
     pub fn suffixes(las: bool) -> &'static [&'static str] {
         if las {
             LAS_SUFFIXES
@@ -174,7 +174,7 @@ mod tests {
             &args(&["a.laz", "b.laz", "-o", "out", "-m", "1024", "-f", "-r", "-g", "abc"]),
             true,
         )
-        .expect("разбор");
+        .expect("parse");
         assert_eq!(options.sources, vec!["a.laz".to_string(), "b.laz".to_string()]);
         assert_eq!(options.out_dir, Some(PathBuf::from("out")));
         assert_eq!(options.max_per_tile, 1024);
@@ -186,12 +186,12 @@ mod tests {
     #[test]
     fn parses_las_flags_only_for_las() {
         let options =
-            Options::parse(&args(&["a.laz", "--units-scale", "0.3048"]), true).expect("разбор");
+            Options::parse(&args(&["a.laz", "--units-scale", "0.3048"]), true).expect("parse");
         assert!((options.las.units - 0.3048).abs() < 1e-12);
 
         let error = Options::parse(&args(&["a.pts", "--units-scale", "0.3048"]), false)
-            .expect_err("для .pts ключ LAS не разрешён");
-        assert!(error.0.contains("неизвестный аргумент"), "{error}");
+            .expect_err(".pts does not accept LAS flags");
+        assert!(error.0.contains("unknown argument"), "{error}");
     }
 
     #[test]
@@ -206,18 +206,18 @@ mod tests {
     #[test]
     fn validate_reports_like_cli() {
         let options = Options::default();
-        assert_eq!(options.validate(), Err("не указаны входные файлы".to_string()));
+        assert_eq!(options.validate(), Err("no input files given".to_string()));
 
         let options =
             Options { sources: vec!["a.laz".into()], max_per_tile: 0, ..Options::default() };
-        assert_eq!(options.validate(), Err("-m 0 вне 1…65536".to_string()));
+        assert_eq!(options.validate(), Err("-m 0 out of 1..65536".to_string()));
 
         let options = Options {
             sources: vec!["a.laz".into()],
             max_per_tile: rcs_cloud::MAX_TILE_POINTS + 1,
             ..Options::default()
         };
-        assert_eq!(options.validate(), Err("-m 65537 вне 1…65536".to_string()));
+        assert_eq!(options.validate(), Err("-m 65537 out of 1..65536".to_string()));
 
         let options = Options { sources: vec!["a.laz".into()], ..Options::default() };
         assert_eq!(options.validate(), Ok(()));

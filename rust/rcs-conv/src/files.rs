@@ -1,15 +1,15 @@
-//! Обход входов: файлы, каталоги, маски — и имя результата.
+//! Walking the inputs: files, directories, masks — and the result name.
 
 use std::path::{Path, PathBuf};
 
-/// Совпадает ли расширение файла (регистр не важен).
+/// Whether the file extension matches (case-insensitive).
 pub fn has_suffix(path: &Path, suffix: &str) -> bool {
     path.extension()
         .and_then(|value| value.to_str())
         .is_some_and(|value| format!(".{value}").eq_ignore_ascii_case(suffix))
 }
 
-/// Имя выхода: то же имя с расширением `.rcs` (и, если задан, в `out_dir`).
+/// Output name: the same name with the `.rcs` extension (and inside `out_dir` when set).
 pub fn default_target(source: &Path, out_dir: Option<&Path>) -> PathBuf {
     let name = source
         .file_stem()
@@ -21,9 +21,9 @@ pub fn default_target(source: &Path, out_dir: Option<&Path>) -> PathBuf {
     }
 }
 
-/// Развернуть аргументы CLI в список входных файлов с нужным расширением.
+/// Expand CLI arguments into a list of input files with the required extension.
 ///
-/// Принимает файлы, каталоги (все файлы с расширением внутри) и маски.
+/// Accepts files, directories (all files with the extension inside) and masks.
 pub fn expand_sources(patterns: &[String], suffixes: &[&str], recursive: bool) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = Vec::new();
     for pattern in patterns {
@@ -58,7 +58,7 @@ pub fn expand_sources(patterns: &[String], suffixes: &[&str], recursive: bool) -
     unique
 }
 
-/// Файлы каталога с нужными расширениями (сортировка по пути).
+/// Files of a directory with the required extensions (sorted by path).
 pub fn collect_dir(dir: &Path, suffixes: &[&str], recursive: bool, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -83,7 +83,7 @@ pub fn collect_dir(dir: &Path, suffixes: &[&str], recursive: bool, out: &mut Vec
     }
 }
 
-/// Маска в одном компоненте пути: `*` — любая подстрока, `?` — один символ.
+/// Mask within a single path component: `*` — any substring, `?` — one character.
 pub fn wildcard_match(pattern: &str, text: &str) -> bool {
     match pattern.chars().next() {
         None => text.is_empty(),
@@ -106,7 +106,7 @@ pub fn wildcard_match(pattern: &str, text: &str) -> bool {
     }
 }
 
-/// Развернуть маску в список существующих файлов (каталог + имя с маской).
+/// Expand a mask into existing files (directory + name with the mask).
 pub fn glob(pattern: &str) -> Vec<PathBuf> {
     let path = Path::new(pattern);
     let dir = match path.parent() {
@@ -168,11 +168,11 @@ mod tests {
     fn directory_is_expanded_and_deduplicated() {
         let dir = std::env::temp_dir().join(format!("rcs-conv-files-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("sub")).expect("каталог");
+        std::fs::create_dir_all(dir.join("sub")).expect("directory");
         for name in ["a.laz", "b.LAZ", "c.pts", "notes.txt"] {
-            std::fs::write(dir.join(name), b"x").expect("файл");
+            std::fs::write(dir.join(name), b"x").expect("file");
         }
-        std::fs::write(dir.join("sub").join("d.laz"), b"x").expect("файл");
+        std::fs::write(dir.join("sub").join("d.laz"), b"x").expect("file");
 
         let patterns = vec![dir.to_string_lossy().into_owned()];
         let flat = expand_sources(&patterns, &[".las", ".laz"], false);

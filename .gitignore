@@ -1,12 +1,12 @@
-# Данные и результаты — не в git (см. .clinerules п.5, п.13)
+# Data and run results — not in git (see .clinerules 2, 13)
 
-# Эталоны и исходники (созданы Autodesk, десятки-сотни МБ, снимаются локально)
+# Reference corpus (created by Autodesk, tens/hundreds of MB, captured locally)
 golden/
 
-# Результаты наших утилит
+# Output of our tools
 out/
 
-# Эксперименты/дампы
+# Experiments and dumps
 dumps/
 
 # Python
@@ -16,5 +16,9 @@ __pycache__/
 # Rust
 rust/target/
 
-# Личные заметки (исключены и для агента, см. .clineignore)
+# Russian mirror of the documentation, kept locally by the owner.
+# The repository itself is English-only; these files are never committed.
+docs-rus/
+
+# Personal notes (also excluded for the agent, see .clineignore)
 usernotes.txt

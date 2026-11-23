@@ -1,67 +1,65 @@
-# rcsconv — обратимый конвертер Autodesk ReCap `.rcs`
+# rcsconv — a reversible Autodesk ReCap `.rcs` converter
 
-Читатель и **писатель** проприетарного контейнера `.rcs` (сигнатура `ADOCT`,
-эталонная версия ReCap 2020 / 6.0.0.110). Собирает `.rcs` **без ReCap и без
-шаблона** — из `.pts`, `.las` или `.laz` — и файл открывается в Revit.
+A reader and **writer** for the proprietary `.rcs` container (signature `ADOCT`,
+reference version ReCap 2020 / 6.0.0.110). It builds `.rcs` **without ReCap and
+without a template** — from `.pts`, `.las` or `.laz` — and the file opens in Revit.
 
-Проект вырос из реверса: спецификация формата (`docs/RCS-FORMAT.md`) и формат
-проекта `.rcp` (`docs/RCP-FORMAT.md`) — такая же ценность, как код.
+The project grew out of reverse engineering: the format specification
+(`docs/RCS-FORMAT.md`) and the `.rcp` project format (`docs/RCP-FORMAT.md`) are as
+valuable as the code.
 
-## Что умеет
+## What it does
 
-| Вход | Выход | Команда |
+| Input | Output | Command |
 |---|---|---|
-| `.pts` (текст Leica, 3–7 колонок) | `.rcs` (Unified RCS, v5) | `tools/pts2rcs.py` |
+| `.pts` (Leica text, 3–7 columns) | `.rcs` (Unified RCS, v5) | `tools/pts2rcs.py` |
 | `.las` / `.laz` | `.rcs` | `tools/las2rcs.py` |
 | `.rcs` | `.pts` | `tools/rcs2pts.py` |
-| `.rcs` | проверка инвариантов, bbox, `type 1` | `tools/rcs_inspect.py`, `tools/validate_pts.py` |
-| `.rcp` (проект ReCap) | настройки импорта из XML | `tools/rcp_info.py` |
+| `.rcs` | invariant check, bbox, `type 1` | `tools/rcs_inspect.py`, `tools/validate_pts.py` |
+| `.rcp` (ReCap project) | import settings from XML | `tools/rcp_info.py` |
 
-Дополнительно: подвыборка `.pts`, LAS/LAZ → `.pts`, сравнение двух `.rcs`,
-разбор узлов и метаданных, чек-лист корпуса.
+Also: `.pts` subsampling, LAS/LAZ → `.pts`, comparing two `.rcs` files, inspecting
+tiles and metadata, and a corpus checklist.
 
-**Автономный `rcsconv.exe` (Rust)** уже собирает `.rcs` из `.las/.laz` и `.pts` —
-один статический файл 0.6 МБ, без Python и DLL, побайтовый паритет с Python-версией
-(кроме GUID): [`docs/ROADMAP.md`](docs/ROADMAP.md). Чтение `.rcs` в нём — следующий шаг.
+**The standalone `rcsconv.exe` (Rust)** builds `.rcs` from `.las/.laz` and `.pts`:
+one static file, no Python and no DLLs, byte parity with the Python version
+(except GUID): [`docs/ROADMAP.md`](docs/ROADMAP.md). Reading `.rcs` in Rust is the
+next step.
 
-## Быстрый старт
+## Quick start
 
 ```powershell
-# .pts → .rcs и обратно (три маленьких пробы лежат в golden/)
-python tools/pts2rcs.py golden/probe6.pts -o out           # → out/probe6.rcs
-python tools/rcs2pts.py out/probe6.rcs -o out -c -i         # → out/probe6.pts
-python tools/rcs_write.py out/probe6.rcs out/copy.rcs       # read → write, байт-в-байт
+# .pts -> .rcs and back (three small probes live in golden/)
+python tools/pts2rcs.py golden/probe6.pts -o out           # -> out/probe6.rcs
+python tools/rcs2pts.py out/probe6.rcs -o out -c -i         # -> out/probe6.pts
+python tools/rcs_write.py out/probe6.rcs out/copy.rcs       # read -> write, byte identical
 python tools/validate_pts.py golden/probe6.pts out/probe6.rcs -s
 
-# LAS/LAZ → .rcs, без текстового посредника
+# LAS/LAZ -> .rcs, without a text intermediate
 python tools/las2rcs.py golden/level_7.laz -o out
 python tools/las2rcs.py "golden/*.laz" -o out
 python tools/las2rcs.py scan.las --units-scale 0.3048 --recenter center
 
-# корпус и проекты
-python tools/corpus_status.py golden -g golden              # что снято, count, узлы
-python tools/validate_pts.py "golden/*.pts" -g golden       # сводка по всем парам
-python tools/rcp_info.py "golden/*.rcp"                     # настройки импорта из XML
+# corpus and projects
+python tools/corpus_status.py golden -g golden              # what was captured, count, tiles
+python tools/validate_pts.py "golden/*.pts" -g golden       # summary over all pairs
+python tools/rcp_info.py "golden/*.rcp"                     # import settings from XML
 ```
 
-Правило CLI: первый аргумент — вход (файл, каталог или маска), имя выхода
-подставляется само (`<имя>.rcs` / `<имя>.pts`), существующий файл не
-перезаписывается без `-f`. Результаты пишите в `out/`.
+CLI rule: the first argument is the input (a file, directory or mask), the output
+name is derived (`<name>.rcs` / `<name>.pts`), and an existing file is not
+overwritten without `-f`. Write results to `out/`.
 
-Требования: Python 3.11 + `numpy`. `laspy` (+ бэкенд `laszip` или `lazrs`) нужен
-только для LAS/LAZ: `pip install -e ".[las]"`.
+Requirements: Python 3.11 + `numpy`. `laspy` (with the `laszip` or `lazrs`
+backend) is needed only for LAS/LAZ: `pip install -e ".[las]"`.
 
-Rust-порт собирается без MSVC — нужен GNU-хост `x86_64-pc-windows-gnu`
-(установка тулчейна — ниже, `rustup` не обязателен):
+The Rust port builds without MSVC — it needs the GNU host
+`x86_64-pc-windows-gnu` (toolchain installation is described below; `rustup` is
+not required):
 
-```powershell
-cd rust
-cargo build --release      # → rcsconv.exe и rcsconv-gui.exe (статический CRT)
-cargo test                 # тесты крейтов и GUI-логики (57)
-```
 
-Готовые команды `.exe` (то же поведение, что у скриптов: вход — файл, каталог или
-маска, выход `<имя>.rcs`, без `-f` существующий файл не перезаписывается):
+Ready-to-use `.exe` commands (same behaviour as the scripts: input is a file,
+directory or mask, output `<name>.rcs`, no overwrite without `-f`):
 
 ```powershell
 rust\target\release\rcsconv.exe las2rcs golden\level_7.laz -o out
@@ -73,132 +71,147 @@ rust\target\release\rcsconv.exe --help
 
 ### GUI: `rcsconv-gui.exe`
 
-Интерфейс — нативный Win32 (без фреймворка), отдельный бинарник рядом с CLI:
-`rcsconv.exe` остаётся консольным (`Subsystem = Windows CUI`), `rcsconv-gui.exe`
-работает без окна консоли (`Windows GUI`) и не запускает CLI дочерним процессом —
-оба линкуют одни и те же крейты. Связь с системой — крейт `windows-sys`
-(единственная новая зависимость; одна скачанная `.crate` в `cargo-home`),
-`unsafe` изолирован в `rust/rcsconv-gui/src/win32.rs`.
+The interface is native Win32 (no framework), a separate binary next to the CLI:
+`rcsconv.exe` stays a console program (`Subsystem = Windows CUI`),
+`rcsconv-gui.exe` runs without a console window (`Windows GUI`) and does not spawn
+the CLI as a child process — both link the same crates. The system boundary is the
+`windows-sys` crate (the only new dependency), and `unsafe` is isolated in
+`rust/rcsconv-gui/src/win32.rs`.
 
 ```powershell
-rust\target\release\rcsconv-gui.exe        # окно
+rust\target\release\rcsconv-gui.exe        # window
 ```
 
-Состояние: фазы **G1** (окно-каркас с раскладкой и DPI `PerMonitorV2`, манифест
-comctl32 v6 через `windres`), **G2** (очередь файлов: «Добавить файлы…» с
-мультивыбором, «Добавить папку…» с обходом подкаталогов, перетаскивание в окно,
-список с колонками «Файл / Папка / Размер / Состояние», «Убрать» и «Очистить») и
-**G3** (параметры: папка вывода, масштаб `--units-scale`, центрирование `-m`,
-предел точек в узле, GUID, флаги цвета/интенсивности/`-f`/`-r`; проверка ввода
-видна прямо в подсказке, значения хранятся в `HKCU\Software\rcsconv\gui`) и
-**G4** (конвертация в фоновом потоке: прогресс-бар по этапам, «Конвертировать/Отмена»,
-состояния строк в списке, «Открыть папку»; файл из GUI **побайтово равен** файлу
-из CLI, тест `gui_and_cli_produce_identical_bytes`).
-Осталось: G5 (чтение `.rcs` — `inspect`/`rcs2pts`) и G6 (полировка, `docs/GUI.md`,
-приёмка в Revit) — `docs/ROADMAP.md` §4.1.
+State: phases **G1** (window skeleton with layout and `PerMonitorV2` DPI, comctl32
+v6 manifest via `windres`), **G2** (file queue: "Add files..." with multi-select,
+"Add folder..." walking subdirectories, drag and drop, a list with
+File / Folder / Size / Status columns, "Remove" and "Clear"), **G3** (parameters:
+output folder, `--units-scale`, recentring `-m`, points per tile, GUID,
+colour/intensity/`-f`/`-r` flags; input validation is visible right in the hint,
+values are stored in `HKCU\Software\rcsconv\gui`) and **G4** (conversion in a
+background thread: progress bar per stage, "Convert"/"Cancel", row states, "Open
+folder"; a file from the GUI is **byte-identical** to a file from the CLI, test
+`gui_and_cli_produce_identical_bytes`). The interface language is English.
+Remaining: G5 (reading `.rcs` — `inspect`/`rcs2pts`) and G6 (polish, `docs/GUI.md`,
+acceptance in Revit) — `docs/ROADMAP.md` §4.1.
 
-Линковщик может предупредить `.rsrc merge failure: multiple non-default
-manifests` — это нормально: в exe два манифеста (наш и встроенный CRT), но
-`FindResource(1, RT_MANIFEST)` отдаёт наш (проверено, `out/diag/pe_resources.py`).
+The linker may warn `.rsrc merge failure: multiple non-default manifests` — that is
+normal: the exe has two manifests (ours and the built-in CRT one), but
+`FindResource(1, RT_MANIFEST)` returns ours (verified, `out/diag/pe_resources.py`).
 
-### Тулчейн: портативная установка, без `rustup`
+### Toolchain: portable installation, no `rustup`
 
-`rustup` не обязателен: тулчейн ставится **копированием** распакованного архива,
-профиль пользователя остаётся чистым (никаких `.rustup`/`.cargo` в `C:\Users\...`).
+`rustup` is not required: the toolchain is installed **by copying** an unpacked
+archive, and the user profile stays clean (no `.rustup`/`.cargo` under
+`C:\Users\...`).
 
-| Что | Где на машине владельца |
+| What | Where on the owner's machine |
 |---|---|
-| Тулчейн: `rustc`, `cargo`, `std`, `rustc_driver-*.dll`, `libgcc_s_seh-1.dll`, `libwinpthread-1.dll` | `C:\mingw64\rust` (`bin\`, `lib\`, `libexec\`, `share\`, `etc\`) |
-| Кеш крейтов (`registry\`, `.global-cache`) | `C:\mingw64\rust\cargo-home` — машинная переменная `CARGO_HOME` |
-| Линкер | MinGW/WinLibs (gcc 16.2) — `C:\mingw64\bin`, уже в системном `PATH` |
+| Toolchain: `rustc`, `cargo`, `std`, `rustc_driver-*.dll`, `libgcc_s_seh-1.dll`, `libwinpthread-1.dll` | `C:\rust` (`bin\`, `lib\`, `libexec\`, `share\`, `etc\`) |
+| Crate cache (`registry\`, `.global-cache`) | `C:\rust\cargo-home` — machine variable `CARGO_HOME` |
+| Linker | MinGW/WinLibs (gcc 16.2) — `C:\mingw64\bin`, already in the system `PATH` |
 
-Машинные переменные (действуют для всех пользователей и для новых процессов):
+Machine variables (they apply to all users and to new processes):
 
 ```powershell
-# PATH: ... C:\mingw64\bin\;C:\mingw64\rust\bin; ...  ← rust\bin сразу после mingw64\bin
+# PATH: ... C:\mingw64\bin\;C:\rust\bin; ...  <- rust\bin right after mingw64\bin
 [Environment]::SetEnvironmentVariable('PATH', $newPath, 'Machine')
-[Environment]::SetEnvironmentVariable('CARGO_HOME', 'C:\mingw64\rust\cargo-home', 'Machine')
+[Environment]::SetEnvironmentVariable('CARGO_HOME', 'C:\rust\cargo-home', 'Machine')
 ```
 
-Проверка после установки: `rustc -vV` → `host: x86_64-pc-windows-gnu`,
-`rustc --print sysroot` → `C:\mingw64\rust`, `cargo test --workspace --offline` → 42 passed
-(офлайн работает за счёт перенесённого кеша). `rust-toolchain.toml`
-(`channel = "stable"`) читает только `rustup` — без него файл инертен, но нужен CI
-(Ubuntu ставит `rustup` сам).
+Check after installation: `rustc -vV` -> `host: x86_64-pc-windows-gnu`,
+`rustc --print sysroot` -> `C:\rust`, `cargo test --workspace --offline` -> 71 passed
+(offline works thanks to the copied cache). `rust-toolchain.toml`
+(`channel = "stable"`) is read only by `rustup` — without it the file is inert, but
+CI needs it (Ubuntu installs `rustup` itself).
 
-**Обновление Rust:** скачать `rust-<версия>-x86_64-pc-windows-gnu.tar.gz`
-(≈533 МБ) и распаковать **поверх** `C:\mingw64\rust`; `cargo-home` не трогается.
-То же самое можно сделать временной установкой `rustup`.
+**Updating Rust:** download `rust-<version>-x86_64-pc-windows-gnu.tar.gz`
+(about 533 MB) and unpack it **over** `C:\rust`; `cargo-home` is not touched.
+The same can be done with a temporary `rustup` installation.
 
-На другой машине годится и классический `rustup`: `rustup-init.exe --profile minimal`
-из [rustup.rs](https://rustup.rs/), затем `rustup set default-host x86_64-pc-windows-gnu`
-— иначе `cargo` возьмёт MSVC-тулчейн. `rust-toolchain.toml` специально не фиксирует
-триплет, чтобы сборка работала и на Linux (CI).
+On another machine the classic `rustup` works too: `rustup-init.exe --profile minimal`
+from [rustup.rs](https://rustup.rs/), then `rustup set default-host x86_64-pc-windows-gnu`
+— otherwise `cargo` picks the MSVC toolchain. `rust-toolchain.toml` deliberately
+does not pin the triple so the build also works on Linux (CI).
 
-`rust/target/` (артефакты сборки, ~300 МБ) — рабочая папка на C:, в git не входит,
-чистится `cargo clean`.
 
-## Как проверялось
+## How it was verified
 
-Главное в проекте — не «размер файла совпал», а проверяемость:
+The main point of the project is not "the file size matched" but verifiability:
 
-- **85 тестов** (`python -m unittest discover -s tools/tests`); без данных часть
-  классов скипается, а не падает;
-- `read → write` даёт **побайтово идентичный** файл на эталонах;
-- файлы, собранные `pts2rcs`, **открыты в Revit 2023** на 9 реальных облаках
-  (0.3–4.0 млн точек), габариты сверены;
-- на `level_7` блоки `type 1` (метаданные) и `type 0` (свойства) совпадают с
-  эталоном ReCap **байт-в-байт**; из `.laz` получается то же дерево (43 узла, глубина 3);
-- `export ⊂ raw` — экспорт Unified только прореживает импортированное облако
-  (проверено на 1.07 млн точек);
-- что **не** проверено — честно перечислено: линковка Revit-модели, `.e57`,
-  точный механизм прореживания при экспорте (`docs/RCS-FORMAT.md` §12).
+- **85 tests** (`python -m unittest discover -s tools/tests`); without the data some
+  classes are skipped instead of failing;
+- `read -> write` produces a **byte-identical** file on the reference files;
+- files built by `pts2rcs` were **opened in Revit 2023** on 9 real clouds
+  (0.3–4.0 million points) and the dimensions were checked;
+- on `level_7` the `type 1` (metadata) and `type 0` (properties) blocks match the
+  ReCap reference **byte for byte**; from `.laz` the same tree is produced (43
+  tiles, depth 3);
+- `export ⊂ raw` — the Unified export only thins the imported cloud (verified on
+  1.07 million points);
+- what is **not** verified is listed honestly: Revit model linking, `.e57`, the
+  exact decimation mechanism during export (`docs/RCS-FORMAT.md` §12).
 
-## Как это сделано
+## How it was made
 
-Проект сделан в паре «человек + ИИ-агент»: постановка задач, съёмка, данные и
-приёмка в Revit — владелец проекта; код, анализ формата и тексты документации —
-агент Cline (модель DeepSeek V4.1 Flash 1017) в VS Code.
+The project is a "human + AI agent" pair: task setting, data capture and acceptance
+in Revit belong to the project owner; the code, format analysis and documentation
+text are produced by the Cline agent in VS Code.
 
-Поэтому каждый факт о формате помечен **ПОДТВЕРЖДЕНО / ГИПОТЕЗА / ОПРОВЕРГНУТО**
-и опирается на тест или скрипт (`docs/RCS-FORMAT.md` §0). В разделе «ОПРОВЕРГНУТО»
-(§13) собраны в том числе ошибки раннего подхода 2025 года — чтобы их никто не
-повторил; короткий пост-мортем — [`docs/LESSONS.md`](docs/LESSONS.md).
+That is why every format fact is labelled **CONFIRMED / HYPOTHESIS / DISPROVED** and
+rests on a test or a script (`docs/RCS-FORMAT.md` §0). The DISPROVED section (§13)
+also collects the mistakes of the early 2025 approach so nobody repeats them; a
+short post-mortem is in [`docs/LESSONS.md`](docs/LESSONS.md).
 
-## Что внутри
+## Repository layout
 
 ```
-tools/                 парсер, писатель, конвертеры, CLI
-  cloud.py              точка и «источник точек» (общий протокол)
-  pts_read.py           .pts            → pts2rcs.py
-  las_read.py           .las/.laz       → las2rcs.py
-  rcs_build.py          октодерево и сборка .rcs (о формате входа не знает)
-  rcs_cli.py            общие аргументы и цикл по файлам
-  rcs_blocks.py         контейнер: заголовок, директория, блоки
-  rcs_points.py         тела точек (16 Б) и заголовок payload'а узла
-  rcs_write.py          сериализация: собрать файл из блоков
-  analyze_*.py          разбор `type 1`, заголовков, payload'ов
-tools/tests/           85 тестов (unittest)
-rust/                  Rust-порт (rcsconv.exe): rcs-format, rcs-cloud, cloud-pts, cloud-las, rcsconv
-docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md, ROADMAP.md, LESSONS.md, GIT.md
-golden/                данные и эталоны (в git НЕ входят)
-out/                   результаты прогонов (в git НЕ входят)
+tools/                 parser, writer, converters, CLI (Python reference)
+  cloud.py              point and the "point source" protocol
+  pts_read.py           .pts            -> pts2rcs.py
+  las_read.py           .las/.laz       -> las2rcs.py
+  rcs_build.py          octree and .rcs assembly (knows nothing about the input format)
+  rcs_cli.py            shared arguments and the per-file loop
+  rcs_blocks.py         container: header, directory, blocks
+  rcs_points.py         point bodies (16 B) and the node payload header
+  rcs_write.py          serialisation: build a file from blocks
+  analyze_*.py          type 1, header and payload analysis
+tools/tests/           85 tests (unittest)
+rust/                  Rust port: rcs-format, rcs-cloud, cloud-pts, cloud-las,
+                       rcs-conv, rcsconv (CLI), rcsconv-gui (Win32 GUI)
+docs/                  RCS-FORMAT.md, RCP-FORMAT.md, CORPUS.md, HANDOVER.md,
+                       ROADMAP.md, LESSONS.md, GIT.md, GUI.md, RELEASE.md
+docs-rus/              Russian mirror of the docs, local only (git-ignored)
+golden/                data and reference files (NOT in git)
+out/                   run results (NOT in git)
 ```
 
-Документация: **[PLAN.md](PLAN.md)** (статус, фазы, журнал) ·
-**[docs/RCS-FORMAT.md](docs/RCS-FORMAT.md)** (спецификация `.rcs`) ·
-**[docs/RCP-FORMAT.md](docs/RCP-FORMAT.md)** (формат `.rcp`) ·
-**[docs/CORPUS.md](docs/CORPUS.md)** (корпус и эталоны) ·
-**[docs/HANDOVER.md](docs/HANDOVER.md)** (точка входа) ·
+Documentation: **[PLAN.md](PLAN.md)** (status, phases, journal) ·
+**[docs/RCS-FORMAT.md](docs/RCS-FORMAT.md)** (`.rcs` specification) ·
+**[docs/RCP-FORMAT.md](docs/RCP-FORMAT.md)** (`.rcp` format) ·
+**[docs/CORPUS.md](docs/CORPUS.md)** (corpus and reference files) ·
+**[docs/HANDOVER.md](docs/HANDOVER.md)** (entry point) ·
+**[docs/GUI.md](docs/GUI.md)** (GUI) ·
+**[docs/RELEASE.md](docs/RELEASE.md)** (release checklist) ·
+**[docs/REVIT-PLUGIN.md](docs/REVIT-PLUGIN.md)** (planned Revit add-in) ·
 **[docs/ROADMAP.md](docs/ROADMAP.md)** · **[docs/GIT.md](docs/GIT.md)**.
 
-## Данные
+## Data
 
-В репозитории **нет** файлов, созданных Autodesk, и тяжёлых облаков: эталоны
-снимаются локально в `golden/` (см. `golden/README.md` и `docs/CORPUS.md`).
-`golden/`, `out/`, `dumps/` перечислены в `.gitignore`.
+The repository contains **no** Autodesk-created files and no heavy clouds: the
+reference files are captured locally into `golden/` (see `golden/README.md` and
+`docs/CORPUS.md`). `golden/`, `out/` and `dumps/` are listed in `.gitignore`.
 
-## Лицензия
+## License
 
-MIT — см. [LICENSE](LICENSE). Проект не связан с Autodesk; ReCap, Revit и
-соответствующие торговые марки принадлежат Autodesk.
+MIT — see [LICENSE](LICENSE). The project is not affiliated with Autodesk; ReCap,
+Revit and the corresponding trademarks belong to Autodesk.
+
+`rust/target/` (build artefacts, about 300 MB) is a working folder on C:, not in
+git, and is cleaned with `cargo clean`.
+
+```powershell
+cd rust
+cargo build --release      # -> rcsconv.exe and rcsconv-gui.exe (static CRT)
+cargo test                 # crate and GUI-logic tests (71)
+```

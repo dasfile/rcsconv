@@ -1,62 +1,69 @@
-# Правила работы над реверсом RCS (ADOCT / Autodesk ReCap)
+# Rules for the RCS reverse-engineering project (ADOCT / Autodesk ReCap)
 
-RCS — контейнер Autodesk ReCap. Эталонная версия в этом проекте: ReCap 2020 (6.0.0.110).
+RCS is an Autodesk ReCap container. The reference version in this project is
+ReCap 2020 (6.0.0.110).
 
-## Железные запреты
+## Hard prohibitions
 
-1. **Никогда не подгонять байты под ожидаемый размер** и не хардкодить куски дампа в генератор.
-   Только сериализация понятой и проверенной структуры.
-2. **Не сохранять «полуфабрикаты» рядом с эталонами.** Все эксперименты — в `dumps/`,
-   результаты утилит — в `out/` (оба в .gitignore).
-3. **Не перезаписывать** ничего в `golden/` (read-only: исходники и эталоны) и никогда
-   не трогать `golden/reference/*_orig.rcs`.
-4. **Не менять смысл уже подтверждённых фактов** без нового теста, который их опровергает.
+1. **Never fit bytes to an expected size** and never hard-code dump fragments into a
+   generator. Only serialise a structure that has been understood and verified.
+2. **Do not keep work-in-progress next to the reference data.** All experiments go to
+   `dumps/`, tool output goes to `out/` (both are git-ignored).
+3. **Never overwrite** anything in `golden/` (read-only: sources and reference files)
+   and never touch `golden/reference/*_orig.rcs`.
+4. **Do not change the meaning of an established fact** without a new test that
+   disproves it.
 
-## Как принимается знание
+## How knowledge is accepted
 
-5. Любое утверждение о формате сначала попадает в `docs/RCS-FORMAT.md`:
-   - раздел **ПОДТВЕРЖДЕНО** — только вместе с тестом/скриптом, который это доказывает;
-   - раздел **ГИПОТЕЗА** — догадки без доказательств, с пометкой, чем проверять;
-   - раздел **ОПРОВЕРГНУТО** — с указанием, что именно это disproved.
-6. Критерий «файл .rcs корректен» — НЕ размер и НЕ совпадение заголовка, а:
-   (а) файл открывает **Revit** (конечный потребитель; на машине — **Revit 2023**
-   23.0.10.18, Revit 2020 нет); ReCap 2020 (6.0.0.110) — дополнительный контроль,
-   если доступен; (б) bbox = bbox источника ±1e-3; (в) count = число точек;
-   (г) координаты ±1e-6; (д) визуально облако совпадает.
+5. Every statement about the format first goes into `docs/RCS-FORMAT.md`:
+   - **CONFIRMED** — only together with the test or script that proves it;
+   - **HYPOTHESIS** — a guess without proof, with a note on how to check it;
+   - **DISPROVED** — with a note on what disproved it.
+6. The criterion "the .rcs file is correct" is NOT size and NOT a matching header, but:
+   (a) the file opens in **Revit** (the end consumer; the machine has **Revit 2023**
+   23.0.10.18, there is no Revit 2020); ReCap 2020 (6.0.0.110) is an additional check
+   when available; (b) bbox = source bbox ±1e-3; (c) count = number of points;
+   (d) coordinates ±1e-6; (e) the cloud matches visually.
 
-## Порядок разработки
+## Development order
 
-7. Сначала **читатель**, потом писатель. Обязателен round-trip
-   `read → write → byte-identical` (кроме GUID/таймстемпов) ДО генерации из `.pts`.
-8. Смещения в файле **не считать выровненными**: директория блоков начинается с `0x135`.
-9. `level_7.pts` (324 680 строк) читать потоково, не загружать целиком без нужды.
+7. **Reader first, writer second.** A round-trip `read -> write -> byte-identical`
+   (except GUID/timestamps) is mandatory BEFORE generating from `.pts`.
+8. Do **not** assume file offsets are aligned: the block directory starts at `0x135`.
+9. Read `level_7.pts` (324,680 lines) as a stream, do not load it whole without need.
 
-## Технологии
+## Technology
 
-10. **Python 3.11 — эталонная реализация и среда исследования** (stdlib + `numpy`;
-    тесты — `unittest`, pytest не установлен):
+10. **Python 3.11 is the reference implementation and the research environment**
+    (stdlib + `numpy`; tests use `unittest`, pytest is not installed):
     `python -m unittest discover -s tools/tests -v`.
-    Целевой продукт — **Rust**: каталог `rust/`, хост `stable-x86_64-pc-windows-gnu`,
-    линковка `+crt-static`, **MSVC не используется**; тесты — `cargo test`.
-    Тулчейн ставится **копированием**, `rustup` не обязателен: на машине владельца
-    это `C:\mingw64\rust` (машинные `PATH` и `CARGO_HOME=C:\mingw64\rust\cargo-home`),
-    в профиле пользователя `.rustup`/`.cargo` не остаётся (`README.md`,
-    «Тулчейн: портативная установка»).
-    Паритет Rust с Python проверяется **побайтово** на эталонах (`docs/ROADMAP.md`).
-    Исключение по зависимостям: `tools/las2pts.py` использует **laspy** (+ бэкенд
-    `laszip` или `lazrs`) — опционально и только для импорта LAS/LAZ (декомпрессия
-    LAZ без внешней библиотеки невозможна). Без laspy остальные инструменты и тесты
-    работают, `las2pts --help` тоже.
-11. Идентификаторы — по-английски, комментарии и документация — по-русски.
+    The target product is **Rust**: directory `rust/`, host
+    `stable-x86_64-pc-windows-gnu`, linking `+crt-static`, **MSVC is not used**;
+    tests use `cargo test`.
+    The toolchain is installed **by copying**, `rustup` is optional: on the owner's
+    machine it is `C:\rust` (machine `PATH` and `CARGO_HOME=C:\rust\cargo-home`),
+    no `.rustup`/`.cargo` is left in the user profile (`README.md`,
+    "Toolchain: portable installation").
+    Rust/Python parity is checked **byte by byte** on the reference files
+    (`docs/ROADMAP.md`).
+    Dependency exception: `tools/las2pts.py` uses **laspy** (with the `laszip` or
+    `lazrs` backend) — optional and only for importing LAS/LAZ (LAZ decompression
+    is impossible without an external library). Without laspy the other tools and
+    tests still work, and so does `las2pts --help`.
+11. Identifiers, comments and documentation are **in English**. The Russian mirror
+    of the documentation is kept locally in `docs-rus/` (git-ignored) and is never
+    committed.
 
-## Процесс
+## Process
 
-12. Одна фаза = один коммит + запись в журнал `PLAN.md` (что сделано, что выяснено, что дальше).
-13. Новые файлы в корне не создавать: код — `tools/` (Python) и `rust/` (Rust,
-    workspace `rcsconv`; `rust/target/` в `.gitignore`), доки — `docs/`,
-    данные и эталоны — `golden/`, результаты прогонов — `out/`.
-    Исключение — стандартные файлы репозитория: `README.md`, `LICENSE`,
+12. One phase = one commit + an entry in the `PLAN.md` journal (what was done, what
+    was learned, what is next).
+13. Do not create new files in the repository root: code goes to `tools/` (Python)
+    and `rust/` (Rust, workspace `rcsconv`; `rust/target/` is git-ignored), docs to
+    `docs/`, data and reference files to `golden/`, run results to `out/`.
+    Exceptions are standard repository files: `README.md`, `LICENSE`,
     `pyproject.toml`, `.gitignore`, `.gitattributes`, `.github/` (CI).
-14. Писатель не должен зависеть от `.rcs`-шаблона: всё, что пишется, выводится из
-    спецификации (`docs/RCS-FORMAT.md`). Шаблон допустим только как отладочная опция
-    для побайтового воспроизведения эталона.
+14. The writer must not depend on an `.rcs` template: everything it writes is
+    derived from the specification (`docs/RCS-FORMAT.md`). A template is allowed
+    only as a debug option for byte-exact reproduction of a reference file.
