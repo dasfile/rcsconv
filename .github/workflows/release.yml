@@ -11,11 +11,14 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Rust (GNU target)
         uses: dtolnay/rust-toolchain@stable
@@ -53,7 +56,7 @@ jobs:
         id: package
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rcsconv-windows-gnu
           path: dist/*.zip

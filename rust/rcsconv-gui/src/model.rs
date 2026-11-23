@@ -653,7 +653,7 @@ mod tests {
         buffer.push(0);
         assert_eq!(
             parse_open_file_buffer(&buffer),
-            vec![PathBuf::from("D:\\scan\\a.laz"), PathBuf::from("D:\\scan\\b.las")]
+            vec![PathBuf::from("D:\\scan").join("a.laz"), PathBuf::from("D:\\scan").join("b.las")]
         );
     }
 
