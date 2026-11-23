@@ -137,6 +137,7 @@ impl Settings {
                 intensity_scale: rcs_conv::ScaleMode::Auto,
             },
             in_memory: false,
+            memory_budget_mb: 2048,
         };
         options.validate()?;
         Ok(options)

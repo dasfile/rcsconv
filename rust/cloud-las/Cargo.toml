@@ -7,5 +7,5 @@ description = "LAS/LAZ input for rcsconv (pure-Rust decoder via the `las` crate)
 license = "MIT"
 
 [dependencies]
-las = { version = "0.9", features = ["laz"] }
+las = { version = "0.9", features = ["laz-parallel"] }
 rcs-cloud = { path = "../rcs-cloud" }

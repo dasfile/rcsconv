@@ -18,8 +18,8 @@ use crate::source::{Bounds, Source};
 use crate::{BuildOptions, Stats};
 use crate::{BBOX_ROUND, DEFAULT_CHUNK_ID, MAX_TILE_POINTS};
 
-const BUCKET_TARGET: u64 = 8 * 1024 * 1024;
-const MAX_BUCKETS: usize = 256;
+const BUCKET_TARGET: u64 = 64 * 1024 * 1024;
+const MAX_BUCKETS: usize = 64;
 const RECORD: usize = 20;
 const REPORT_POINTS: u64 = 1 << 16;
 
@@ -92,7 +92,7 @@ pub fn build_streaming(
     let mut writers: Vec<BufWriter<File>> = Vec::with_capacity(buckets);
     for index in 0..buckets {
         let path = temp.join(format!("bucket-{index:04}.bin"));
-        writers.push(BufWriter::with_capacity(64 * 1024, File::create(path)?));
+        writers.push(BufWriter::with_capacity(256 * 1024, File::create(path)?));
     }
 
     let mut scanned = 0u64;
@@ -184,7 +184,7 @@ pub fn build_streaming(
 
     let tmp = tmp_path(target);
     let built: Result<()> = (|| {
-        let mut out = BufWriter::with_capacity(1 << 20, File::create(&tmp)?);
+        let mut out = BufWriter::with_capacity(8 << 20, File::create(&tmp)?);
         out.write_all(&header_bytes)?;
         let mut offset = 0x1812Du64;
         for (kind, size) in blocks {

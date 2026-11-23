@@ -33,6 +33,9 @@ pub struct Options {
 
     /// Build the file in memory (reference writer) instead of streaming.
     pub in_memory: bool,
+
+    /// Memory budget for the in-memory writer, MB; 0 forces streaming.
+    pub memory_budget_mb: u32,
 }
 
 impl Default for Options {
@@ -46,6 +49,7 @@ impl Default for Options {
             guid: None,
             las: cloud_las::LasOptions::default(),
             in_memory: false,
+            memory_budget_mb: default_memory_budget(),
         }
     }
 }
@@ -61,6 +65,14 @@ impl std::fmt::Display for ArgsError {
 }
 
 impl std::error::Error for ArgsError {}
+
+/// Default memory budget in MB: `RCS_CONV_MEMORY_MB` or 2048.
+fn default_memory_budget() -> u32 {
+    std::env::var("RCS_CONV_MEMORY_MB")
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(2048)
+}
 
 impl Options {
     /// Parse the command line arguments.
@@ -89,6 +101,12 @@ impl Options {
                 "-r" | "--recursive" => options.recursive = true,
                 "-g" | "--guid" => options.guid = Some(take(&arg)?),
                 "--in-memory" => options.in_memory = true,
+                "--memory-budget" => {
+                    let text = take(&arg)?;
+                    options.memory_budget_mb = text
+                        .parse()
+                        .map_err(|_| ArgsError(format!("--memory-budget {text}: an integer is expected")))?;
+                }
                 "--units-scale" if las => {
                     let text = take(&arg)?;
                     options.las.units = text

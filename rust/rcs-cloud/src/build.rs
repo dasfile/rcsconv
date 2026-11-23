@@ -7,6 +7,8 @@
 
 use std::collections::HashMap;
 
+use rayon::prelude::*;
+
 use rcs_format::header::{Header, GUID_OFFSET};
 use rcs_format::point::{encode_body, Point};
 use rcs_format::{metadata, num, properties, writer};
@@ -18,8 +20,6 @@ use crate::progress::{NoProgress, Progress, Stage};
 use crate::source::{Bounds, Source};
 use crate::{BBOX_ROUND, DEFAULT_CHUNK_ID, MAX_TILE_POINTS};
 
-/// How often to report progress and check for cancellation, in points.
-const REPORT_EVERY: usize = 1 << 16;
 
 /// How to build the `.rcs`.
 #[derive(Debug, Clone)]
@@ -125,21 +125,36 @@ pub fn build_from_points_with(
 
     check_cancel(progress)?;
 
-    // Grouping: cell -> point indices in file order.
+    // Grouping: cell -> point indices in file order. Chunks are processed in
+    // parallel and merged in chunk order, so the index lists stay ordered.
+    let threads = rayon::current_num_threads().max(1);
+    let chunk = (points.len() / (threads * 4)).max(1);
+    let parts_count = (points.len() + chunk - 1) / chunk;
+    let parts: Vec<HashMap<Cell, Vec<u32>>> = (0..parts_count)
+        .into_par_iter()
+        .map(|part| {
+            let start = part * chunk;
+            let end = ((part + 1) * chunk).min(points.len());
+            let mut local: HashMap<Cell, Vec<u32>> = HashMap::new();
+            for index in start..end {
+                let point = &points[index];
+                let shifted = [
+                    point.x - center[0],
+                    point.y - center[1],
+                    point.z - center[2],
+                ];
+                local
+                    .entry(octree::cell_of(shifted, half, depth))
+                    .or_default()
+                    .push(index as u32);
+            }
+            local
+        })
+        .collect();
     let mut cells: HashMap<Cell, Vec<u32>> = HashMap::new();
-    for (index, point) in points.iter().enumerate() {
-        let local = [
-            point.x - center[0],
-            point.y - center[1],
-            point.z - center[2],
-        ];
-        cells
-            .entry(octree::cell_of(local, half, depth))
-            .or_default()
-            .push(index as u32);
-        if index % REPORT_EVERY == REPORT_EVERY - 1 {
-            progress.stage(Stage::Octree, index as u64 + 1, total);
-            check_cancel(progress)?;
+    for part in parts {
+        for (cell, mut indices) in part {
+            cells.entry(cell).or_default().append(&mut indices);
         }
     }
     progress.stage(Stage::Octree, total, total);
@@ -152,27 +167,37 @@ pub fn build_from_points_with(
         .collect();
     order.sort();
 
-    let mut records: Vec<u8> = Vec::with_capacity(368 * order.len());
-    let mut payloads: Vec<u8> = Vec::new();
-    let mut max_points_per_tile = 0usize;
+    let max_points_per_tile = order
+        .iter()
+        .map(|(_, cell)| cells[cell].len())
+        .max()
+        .unwrap_or(0);
 
     let tile_total = order.len() as u64;
     progress.stage(Stage::Tiles, 0, tile_total);
-    for (index, (_, cell)) in order.iter().enumerate() {
-        let indices = &cells[cell];
-        max_points_per_tile = max_points_per_tile.max(indices.len());
+    let encoded: Vec<Result<(Vec<u8>, Vec<u8>)>> = order
+        .par_iter()
+        .map(|(_, cell)| {
+            let indices = &cells[cell];
+            let cube_min = [
+                -half + cell[0] as f64 * edge,
+                -half + cell[1] as f64 * edge,
+                -half + cell[2] as f64 * edge,
+            ];
+            let cube_max = [cube_min[0] + edge, cube_min[1] + edge, cube_min[2] + edge];
+            encode_tile(points, indices, center, cube_min, cube_max)
+        })
+        .collect();
 
-        let cube_min = [
-            -half + cell[0] as f64 * edge,
-            -half + cell[1] as f64 * edge,
-            -half + cell[2] as f64 * edge,
-        ];
-        let cube_max = [cube_min[0] + edge, cube_min[1] + edge, cube_min[2] + edge];
-
-        write_tile(&mut records, &mut payloads, points, indices, center, cube_min, cube_max)?;
-        progress.stage(Stage::Tiles, index as u64 + 1, tile_total);
-        check_cancel(progress)?;
+    let mut records: Vec<u8> = Vec::with_capacity(368 * order.len());
+    let mut payloads: Vec<u8> = Vec::with_capacity(20 * points.len());
+    for item in encoded {
+        let (tile_records, tile_payloads) = item?;
+        records.extend_from_slice(&tile_records);
+        payloads.extend_from_slice(&tile_payloads);
     }
+    progress.stage(Stage::Tiles, tile_total, tile_total);
+    check_cancel(progress)?;
 
     progress.stage(Stage::Write, 0, 1);
     check_cancel(progress)?;
@@ -227,15 +252,15 @@ fn check_cancel(progress: &dyn Progress) -> Result<()> {
 
 
 /// Tile record in `type 3` and the tile payload in `type 11`.
-fn write_tile(
-    records: &mut Vec<u8>,
-    payloads: &mut Vec<u8>,
+fn encode_tile(
     points: &[CloudPoint],
     indices: &[u32],
     center: [f64; 3],
     cube_min: [f64; 3],
     cube_max: [f64; 3],
-) -> Result<()> {
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    let mut records: Vec<u8> = Vec::with_capacity(368);
+    let mut payloads: Vec<u8> = Vec::with_capacity(20 * indices.len());
     let mut low = [f64::INFINITY; 3];
     let mut high = [f64::NEG_INFINITY; 3];
     for &index in indices {
@@ -289,7 +314,7 @@ fn write_tile(
     for word in tail {
         records.extend_from_slice(&word.to_le_bytes());
     }
-    Ok(())
+    Ok((records, payloads))
 }
 
 /// Header of the file being built (Unified RCS: `chunk_version = 5`).

@@ -313,3 +313,13 @@ English-only phase onward the journal is kept here in English.
   identifiers are candidates (ordered, ReCap first), `IsEngineFileBased` is used
   only for the report inside `try/catch`, and the candidate list is logged before
   the attempts.
+- **R9.3 memory policy** - `--memory-budget` / `RCS_CONV_MEMORY_MB` (default 2048 MB);
+  the in-memory writer is chosen when `points * 110 B + 64 MB` fits, otherwise the
+  streaming writer. Streaming buffers grew (64 MB buckets, 256 KB writers, 8 MB output).
+- **R9.4a batches** - the CLI converts multiple inputs concurrently (threads =
+  logical cores, budget split between workers); results are printed in input order.
+- **R9.4b parallel LAZ** - `las` now uses `laz-parallel` (rayon fetched into the
+  offline cache); `rcs-cloud` uses rayon for octree counts, grouping and tile
+  encoding. `attic_north.pts` 3.03 -> 1.35 s; 4M `.laz` in memory 8.35 -> 4.45 s;
+  streaming 22.5 -> 18.25 s. Byte parity verified (`level_7.laz` hash unchanged).
+- **Plugin `.laz` filter** - `FileOpenDialog` now lists `*.pts;*.las;*.laz`.

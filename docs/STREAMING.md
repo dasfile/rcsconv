@@ -51,6 +51,27 @@ and reuse them, which removes one decompression.
 
 The in-memory reference writer is still available: `rcsconv ... --in-memory`.
 
+### Results after R9.3/R9.4 (adaptive budget, rayon, parallel batches)
+
+The writer now chooses the path from the memory budget (`--memory-budget`,
+`RCS_CONV_MEMORY_MB`, default **2048 MB**): if `points * 110 B + 64 MB` fits, the
+in-memory writer is used, otherwise the streaming writer. `--in-memory` forces the
+reference path and `--memory-budget 0` forces streaming.
+
+Parallelism: `rayon` is used for the octree counts, grouping and tile encoding;
+`las` uses `laz-parallel`, so LAZ is decompressed on all cores; the CLI converts
+batches of files concurrently (memory budget is split between workers).
+
+| Scenario | Before | After |
+|---|---|---|
+| `attic_north.pts` (1,411,760 points, 47 MB) | 3.03 s / 137 MB | **1.35 s / 140 MB** |
+| `attic_south_west.laz` (3,953,680 points), default budget | 8.35 s / 644 MB | **4.45 s / 643 MB** |
+| the same, `--memory-budget 0` (streaming) | 22.5 s / 19.7 MB | **18.25 s / 67 MB** |
+
+Byte parity is unchanged: `level_7.laz` still produces 6,612,979 bytes with the same
+SHA-256, and `streaming_matches_in_memory` compares both writers on every reference
+file.
+
 ## 3. Where the memory goes (from `rcs-cloud` and `rcs-format`)
 
 | Buffer | Size |

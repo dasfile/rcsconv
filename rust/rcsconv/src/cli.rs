@@ -45,11 +45,58 @@ pub fn run(command: &str, args: &[String]) -> i32 {
         return 2;
     }
 
+    let threads = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(1)
+        .min(sources.len())
+        .max(1);
+
+    let mut results: Vec<Option<rcs_conv::Conversion>> = Vec::with_capacity(sources.len());
+    results.resize_with(sources.len(), || None);
+
+    if threads > 1 {
+        let slots = std::sync::Mutex::new(results);
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            for _ in 0..threads {
+                scope.spawn(|| {
+                    // Split the memory budget between workers so a batch cannot
+                    // exhaust RAM: each conversion gets budget / threads.
+                    let mut local = options.clone();
+                    if !local.in_memory && local.memory_budget_mb > 0 {
+                        local.memory_budget_mb =
+                            (local.memory_budget_mb / threads as u32).max(64);
+                    }
+                    loop {
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if index >= sources.len() {
+                            break;
+                        }
+                        let result = convert_one(
+                            &sources[index],
+                            &local,
+                            &build_options,
+                            las,
+                            &NoProgress,
+                        );
+                        if let Ok(mut guard) = slots.lock() {
+                            guard[index] = Some(result);
+                        }
+                    }
+                });
+            }
+        });
+        results = slots.into_inner().unwrap_or_else(|error| error.into_inner());
+    } else {
+        for (index, source) in sources.iter().enumerate() {
+            results[index] = Some(convert_one(source, &options, &build_options, las, &NoProgress));
+        }
+    }
+
     let mut written = 0usize;
     let mut skipped = 0usize;
     let mut failed = 0usize;
-    for source in &sources {
-        let result = convert_one(source, &options, &build_options, las, &NoProgress);
+    for result in results.into_iter().flatten() {
         match result.status {
             Status::Written => {
                 written += 1;

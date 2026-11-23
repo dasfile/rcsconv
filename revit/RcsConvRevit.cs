@@ -1269,7 +1269,7 @@ namespace IvanTools
             // Revit-native dialog: no System.Windows.Forms dependency, which matters for
             // CsHotLoader (it references only Revit assemblies and already loaded ones).
             using (FileOpenDialog dialog = new FileOpenDialog(
-                "Point cloud sources (*.pts;*.las)|*.pts;*.las"))
+                "Point cloud sources (*.pts;*.las;*.laz)|*.pts;*.las;*.laz"))
             {
                 dialog.Title = "Select a point cloud source";
                 if (dialog.Show() != ItemSelectionDialogResult.Confirmed)

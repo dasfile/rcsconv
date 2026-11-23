@@ -99,6 +99,7 @@ fn convert(
         guid,
         las: Default::default(),
         in_memory: flags & FLAG_IN_MEMORY != 0,
+        memory_budget_mb: memory_budget(),
     };
     if let Err(message) = options.validate() {
         return to_error(&message);
@@ -143,6 +144,7 @@ fn convert_into(
         guid,
         las: Default::default(),
         in_memory: flags & FLAG_IN_MEMORY != 0,
+        memory_budget_mb: memory_budget(),
     };
     if let Err(message) = options.validate() {
         return to_error(&message);
@@ -156,6 +158,13 @@ fn convert_into(
     let las = is_las(path);
     let result = convert_to(path, Path::new(&target), &options, &build, las, &NoProgress);
     response(&result)
+}
+
+fn memory_budget() -> u32 {
+    std::env::var("RCS_CONV_MEMORY_MB")
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(2048)
 }
 
 fn is_las(path: &Path) -> bool {

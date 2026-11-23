@@ -27,7 +27,9 @@ one static file, no Python and no DLLs, byte parity with the Python version
 next step. Very large clouds: the writer now builds the file on disk (streaming), with a peak
 of a few tens of megabytes regardless of the cloud size; measurements and the design
 are in [`docs/STREAMING.md`](docs/STREAMING.md). `--in-memory` keeps the reference
-writer for comparison.
+writer for comparison; `--memory-budget MB` (or `RCS_CONV_MEMORY_MB`) controls when the
+in-memory writer is used (default 2048 MB, 0 forces streaming). Batches of files and
+the octree run on all cores (`rayon`, `laz-parallel`).
 
 ## Quick start
 

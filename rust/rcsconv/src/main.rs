@@ -26,6 +26,7 @@ Common options:
   -r, --recursive                walk subdirectories
   -g, --guid GUID                set GUID ({8_4_4_4_12}); default is random
       --in-memory                build in memory (reference writer, debug only)
+      --memory-budget MB         in-memory budget, 0 forces streaming (default 2048)
 
 las2rcs options:
       --units-scale F            coordinate multiplier (feet -> m: 0.3048)

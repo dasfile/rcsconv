@@ -130,14 +130,14 @@ pub fn convert_to(
 
     let outcome: Result<Stats, Error> = if las {
         let mut reader = cloud_las::LasSource::new(source, options.las.clone());
-        if options.in_memory {
+        if use_memory(&reader, source, options) {
             build_in_memory(&mut reader, build_options, progress, &target)
         } else {
             rcs_cloud::stream::build_streaming(&mut reader, build_options, progress, &target)
         }
     } else {
         let mut reader = cloud_pts::PtsSource::new(source);
-        if options.in_memory {
+        if use_memory(&reader, source, options) {
             build_in_memory(&mut reader, build_options, progress, &target)
         } else {
             rcs_cloud::stream::build_streaming(&mut reader, build_options, progress, &target)
@@ -164,6 +164,29 @@ pub fn convert_to(
     result
 }
 
+
+/// Choose the in-memory writer when the estimated footprint fits the budget.
+///
+/// Point counts come from the header for LAS/LAZ; for `.pts` the file size is a
+/// good enough estimate (about 32 bytes per line). A budget of 0 forces the
+/// streaming writer, which the parity tests rely on.
+fn use_memory(source: &dyn Source, path: &Path, options: &Options) -> bool {
+    if options.in_memory {
+        return true;
+    }
+    if options.memory_budget_mb == 0 {
+        return false;
+    }
+    let points = match source.bounds_hint() {
+        Some(bounds) => bounds.count,
+        None => match std::fs::metadata(path) {
+            Ok(meta) => meta.len() / 32,
+            Err(_) => return false,
+        },
+    };
+    let estimate = points.saturating_mul(110) + 64 * 1024 * 1024;
+    estimate <= (options.memory_budget_mb as u64) * 1024 * 1024
+}
 
 /// Reference path: build the whole file in memory and write it atomically.
 fn build_in_memory(
@@ -396,6 +419,8 @@ mod tests {
 
             let mut stream_options = options_for(&source, &stream_dir);
             stream_options.guid = Some(guid.to_string());
+            // Force the streaming path: the default budget would pick in-memory.
+            stream_options.memory_budget_mb = 0;
             let mut memory_options = options_for(&source, &memory_dir);
             memory_options.guid = Some(guid.to_string());
             memory_options.in_memory = true;

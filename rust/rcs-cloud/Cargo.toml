@@ -7,4 +7,5 @@ description = "Point cloud layer for rcsconv: octree tiling and .rcs assembly"
 license = "MIT"
 
 [dependencies]
+rayon = "1"
 rcs-format = { path = "../rcs-format" }
