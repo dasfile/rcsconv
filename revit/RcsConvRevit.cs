@@ -28,7 +28,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
-using System.Runtime.InteropServices;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -948,30 +947,34 @@ namespace IvanTools
                 return Result.Cancelled;
             }
 
-            // Ask for the output folder BEFORE reading the cloud: cancelling the
-            // dialog must not cost a conversion.
-            string folder = FolderPicker.Show(
-                commandData.Application.MainWindowHandle,
-                "Select the folder for the .rcs file",
-                SuggestFolder(input, document));
-            if (string.IsNullOrEmpty(folder))
+            // Ask for the target file BEFORE reading the cloud: Revit keeps linked
+            // .rcs files open, so the name must be adjustable (Save as).
+            string target = PickTarget(document, input);
+            if (string.IsNullOrEmpty(target))
                 return Result.Cancelled;
-            SaveLastDir(folder);
-
-            string target = Path.Combine(folder,
-                Path.GetFileNameWithoutExtension(input) + ".rcs");
+            SaveLastDir(Path.GetDirectoryName(target));
             Log("input: " + input);
             Log("target: " + target);
 
             BuildStats stats = null;
             bool reuse = false;
-            if (File.Exists(target))
+            while (File.Exists(target))
             {
                 bool newer = File.GetLastWriteTimeUtc(target) >= File.GetLastWriteTimeUtc(input);
                 ExistingChoice choice = AskExisting(target, newer);
                 if (choice == ExistingChoice.Cancel)
                     return Result.Cancelled;
+                if (choice == ExistingChoice.NewName)
+                {
+                    target = PickTarget(document, input);
+                    if (string.IsNullOrEmpty(target))
+                        return Result.Cancelled;
+                    SaveLastDir(Path.GetDirectoryName(target));
+                    Log("target: " + target);
+                    continue;
+                }
                 reuse = choice == ExistingChoice.Reuse;
+                break;
             }
 
             if (!reuse)
@@ -992,24 +995,38 @@ namespace IvanTools
                     return Result.Cancelled;
                 }
 
+                byte[] bytes;
                 try
                 {
-                    byte[] bytes = RcsWriter.Build(points, new BuildOptions(), out stats);
-                    File.WriteAllBytes(target, bytes);
-                }
-                catch (IOException error)
-                {
-                    Log("write failed: " + error);
-                    TaskDialog.Show(Caption,
-                        "Cannot write the .rcs file:\n\n" + target + "\n\n" + error.Message +
-                        "\n\nIf Revit already links this file, close the document " +
-                        "or choose another folder.");
-                    return Result.Failed;
+                    bytes = RcsWriter.Build(points, new BuildOptions(), out stats);
                 }
                 catch (Exception error)
                 {
                     TaskDialog.Show(Caption, "Cannot build the .rcs:\n\n" + error.Message);
                     return Result.Failed;
+                }
+
+                try
+                {
+                    File.WriteAllBytes(target, bytes);
+                }
+                catch (IOException writeError)
+                {
+                    // Revit keeps the linked .rcs open: save under a free name instead
+                    // of failing or asking the user to close Revit.
+                    string alternative = UniqueTarget(target);
+                    try
+                    {
+                        File.WriteAllBytes(alternative, bytes);
+                    }
+                    catch (Exception retry)
+                    {
+                        TaskDialog.Show(Caption,
+                            "Cannot write the .rcs file:\n\n" + alternative + "\n\n" + retry.Message);
+                        return Result.Failed;
+                    }
+                    Log("locked '" + target + "', saved as '" + alternative + "': " + writeError.Message);
+                    target = alternative;
                 }
             }
 
@@ -1045,7 +1062,6 @@ namespace IvanTools
                 return path == null ? null : ModelPathUtils.ConvertModelPathToUserVisiblePath(path);
             }
         }
-
 
         /// <summary>
         /// Create the point cloud instance, trying every file-based engine until one
@@ -1256,7 +1272,7 @@ namespace IvanTools
             return Path.GetDirectoryName(Path.GetFullPath(input));
         }
 
-        private enum ExistingChoice { Reuse, Rebuild, Cancel }
+        private enum ExistingChoice { Reuse, Rebuild, NewName, Cancel }
 
         private static ExistingChoice AskExisting(string target, bool newerThanInput)
         {
@@ -1265,97 +1281,59 @@ namespace IvanTools
             dialog.MainContent = target + Environment.NewLine + Environment.NewLine +
                 (newerThanInput
                     ? "It is newer than the input, so it can be reused."
-                    : "It is older than the input, so rebuilding is recommended.");
+                    : "It is older than the input, so rebuilding is recommended.") +
+                Environment.NewLine + Environment.NewLine +
+                "Revit keeps linked .rcs files open, so saving under a new name is the safe choice.";
             dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Use the existing file");
-            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Rebuild the .rcs");
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Rebuild (overwrite)");
+            dialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3, "Save under a new name...");
             dialog.CommonButtons = TaskDialogCommonButtons.Cancel;
             TaskDialogResult result = dialog.Show();
             if (result == TaskDialogResult.CommandLink1)
                 return ExistingChoice.Reuse;
             if (result == TaskDialogResult.CommandLink2)
                 return ExistingChoice.Rebuild;
+            if (result == TaskDialogResult.CommandLink3)
+                return ExistingChoice.NewName;
             return ExistingChoice.Cancel;
         }
 
-        /// <summary>Native "select folder" dialog (shell32): no WinForms dependency.</summary>
-        private static class FolderPicker
+
+        /// <summary>"Save as": the file name is adjustable because Revit locks linked files.</summary>
+        private static string PickTarget(Document document, string input)
         {
-            [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-            private struct BROWSEINFOW
+            string folder = SuggestFolder(input, document);
+            string suggested = Path.Combine(folder,
+                Path.GetFileNameWithoutExtension(input) + ".rcs");
+            using (FileSaveDialog dialog = new FileSaveDialog("ReCap point cloud (*.rcs)|*.rcs"))
             {
-                public IntPtr hwndOwner;
-                public IntPtr pidlRoot;
-                public IntPtr pszDisplayName;
-                public string lpszTitle;
-                public uint ulFlags;
-                public IntPtr lpfn;
-                public IntPtr lParam;
-                public int iImage;
+                dialog.Title = "Save the .rcs file";
+                dialog.InitialFileName = suggested;
+                if (dialog.Show() != ItemSelectionDialogResult.Confirmed)
+                    return null;
+                ModelPath path = dialog.GetSelectedModelPath();
+                if (path == null)
+                    return null;
+                string target = ModelPathUtils.ConvertModelPathToUserVisiblePath(path);
+                if (!target.EndsWith(".rcs", StringComparison.OrdinalIgnoreCase))
+                    target += ".rcs";
+                return target;
             }
+        }
 
-            private delegate int BrowseCallback(IntPtr hwnd, uint message, IntPtr lParam, IntPtr data);
-
-            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-            private static extern IntPtr SHBrowseForFolderW(ref BROWSEINFOW info);
-
-            [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-            private static extern bool SHGetPathFromIDListW(IntPtr pidl, StringBuilder path);
-
-            [DllImport("ole32.dll")]
-            private static extern void CoTaskMemFree(IntPtr memory);
-
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            private static extern IntPtr SendMessageW(IntPtr hwnd, uint message, IntPtr wParam, string lParam);
-
-            private const uint BIF_RETURNONLYFSDIRS = 0x0001;
-            private const uint BIF_NEWDIALOGSTYLE = 0x0040;
-            private const uint BIF_EDITBOX = 0x0010;
-            private const uint BFFM_INITIALIZED = 1;
-            private const uint BFFM_SETSELECTIONW = 0x400 + 103;
-
-            // The shell calls the delegate while the dialog lives: keep it alive.
-            private static BrowseCallback _callback;
-            private static string _initial;
-
-            public static string Show(IntPtr owner, string title, string initial)
+        /// <summary>cloud.rcs -> cloud-2.rcs, cloud-3.rcs, ... (first free name).</summary>
+        private static string UniqueTarget(string target)
+        {
+            string dir = Path.GetDirectoryName(target);
+            string stem = Path.GetFileNameWithoutExtension(target);
+            for (int index = 2; index < 1000; index++)
             {
-                _initial = initial;
-                _callback = OnMessage;
-                IntPtr display = Marshal.AllocHGlobal(520);
-                try
-                {
-                    BROWSEINFOW info = new BROWSEINFOW();
-                    info.hwndOwner = owner;
-                    info.pidlRoot = IntPtr.Zero;
-                    info.pszDisplayName = display;
-                    info.lpszTitle = title;
-                    info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
-                    info.lpfn = Marshal.GetFunctionPointerForDelegate(_callback);
-                    IntPtr pidl = SHBrowseForFolderW(ref info);
-                    if (pidl == IntPtr.Zero)
-                        return null;
-                    try
-                    {
-                        StringBuilder path = new StringBuilder(1024);
-                        return SHGetPathFromIDListW(pidl, path) ? path.ToString() : null;
-                    }
-                    finally
-                    {
-                        CoTaskMemFree(pidl);
-                    }
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(display);
-                }
+                string candidate = Path.Combine(dir, stem + "-" +
+                    index.ToString(CultureInfo.InvariantCulture) + ".rcs");
+                if (!File.Exists(candidate))
+                    return candidate;
             }
-
-            private static int OnMessage(IntPtr hwnd, uint message, IntPtr lParam, IntPtr data)
-            {
-                if (message == BFFM_INITIALIZED && !string.IsNullOrEmpty(_initial))
-                    SendMessageW(hwnd, BFFM_SETSELECTIONW, (IntPtr)1, _initial);
-                return 0;
-            }
+            throw new IOException("No free .rcs name next to " + target);
         }
 
         private static PointCloudType FindType(Document document, string fullPath)

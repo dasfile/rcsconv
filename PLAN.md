@@ -252,6 +252,12 @@ English-only phase onward the journal is kept here in English.
   -o <folder>` (or saving as `.pts`/`.las`). The idea of a Rust `cdylib` called from
   C# through P/Invoke is recorded in `docs/REVIT-PLUGIN.md` section 8 for a future
   phase, not implemented.
+- **R7.5 Save as** — Revit keeps linked `.rcs` files open, so the command now asks
+  for the target file with `FileSaveDialog` (name and folder editable) instead of a
+  folder only. If the file exists, the dialog offers reuse, rebuild or "save under a
+  new name"; if the write still fails because Revit holds the file, the command
+  writes `<name>-2.rcs` (`-3`, ...) and reports the actual path. The shell folder
+  picker (SHBrowseForFolderW) is removed.
 - **R7.3 dialog** — the input dialog is now `Autodesk.Revit.UI.FileOpenDialog`
   instead of `System.Windows.Forms.OpenFileDialog`: CsHotLoader references only
   Revit assemblies plus assemblies already loaded in the Revit process, so a

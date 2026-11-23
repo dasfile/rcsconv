@@ -101,17 +101,18 @@ mantissa and exponent and rounds with 64-bit integer arithmetic.
 ## 4. Behaviour of the command
 
 1. Pick `.pts` or `.las` (`.laz` is rejected with a pointer to `rcsconv.exe`).
-2. Read the points (`PtsReader`: 3–7 columns, count header skipped, intensity
-   optional, values clamped to 0..255).
-3. Pick the **output folder** with the native shell dialog (`SHBrowseForFolderW`,
-   no WinForms). It starts in the last used folder, otherwise next to the model
-   (`.rvt`), otherwise next to the input; the folder is remembered in
+2. Pick the **target file** with the Revit "Save as" dialog (`FileSaveDialog`):
+   the suggested name is `<input>.rcs`; the dialog starts in the last used folder,
+   otherwise next to the model (`.rvt`), otherwise next to the input. Both the
+   name and the folder are editable; the folder is remembered in
    `HKCU\Software\rcsconv\revit\last_dir`.
-4. The result is `<input name>.rcs` in that folder. If the file exists, the
-   command offers to use the existing file (when it is newer than the input) or
-   to rebuild it; a file locked by Revit produces a clear message, not a crash.
-5. Read the points (`PtsReader`: 3–7 columns, count header skipped, intensity
+3. If the file already exists, the command offers: use the existing file (when it
+   is newer than the input), rebuild it, or **save under a new name**.
+4. Read the points (`PtsReader`: 3–7 columns, count header skipped, intensity
    optional, values clamped to 0..255) and build the `.rcs`.
+5. If the chosen file is locked by Revit (linked clouds keep the file open), the
+   command does not fail: it writes `<name>-2.rcs` (then `-3`, ...) and reports
+   the actual path used.
 6. Create or reuse a `PointCloudType` for that path (compared via
    `Path.GetFullPath`, case-insensitive) and create a `PointCloudInstance` with
    `Transform.Identity` inside a transaction.

@@ -113,7 +113,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\revit\run-tests.ps1
 The C# writer is verified byte for byte against the Rust converter on
 `probe6`, `test1`, `test2`, `level_7` (324,680 points), `level_7_n19099`,
 `attic_south_west` (3,953,680 points, 79.5 MB), `entrance` and `roof_1_stairwell`.
-`.pts` is supported, `.las` is next; `.laz` is not supported by the C# build — use `rcsconv.exe las2rcs` for those files.
+`.pts` is supported, `.las` is next; `.laz` is not supported by the C# build — use `rcsconv.exe las2rcs` for those files. The command asks for the target file (Save as) and saves under a free name when Revit keeps the old `.rcs` open.
 
 ### Toolchain: portable installation, no `rustup`
 
